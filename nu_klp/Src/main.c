@@ -89,15 +89,15 @@ int main(void)
 	while(1)
 	{
 		//USART1->TDR = 0xff;
-		//GPIOB->BSRR |= GPIO_BSRR_BS_12;
+		GPIOB->BSRR |= GPIO_BSRR_BS_12;
 		GPIOB->BSRR |= GPIO_BSRR_BS_13;
-		/*GPIOB->BSRR |= GPIO_BSRR_BS_14;
+		GPIOB->BSRR |= GPIO_BSRR_BS_14;
 		GPIOB->BSRR |= GPIO_BSRR_BS_15;
 		GPIOA->BSRR |= GPIO_BSRR_BS_8;
 		GPIOA->BSRR |= GPIO_BSRR_BS_13;
 		GPIOA->BSRR |= GPIO_BSRR_BS_14;
 		GPIOA->BSRR |= GPIO_BSRR_BS_15;
-		*///for(int i=0;i<=100000;i++);
+		//for(int i=0;i<=100000;i++);
 		//GPIOB->BSRR |= GPIO_BSRR_BR_12;
 	}
 }
