@@ -1,6 +1,8 @@
 #include"stm32f767xx.h"
 
-uint16_t buf[7];
+uint16_t adc_buffer[70];
+uint16_t adc_value[7];
+uint16_t errors;
 
 void EXTI0_IRQHandler()
 {
@@ -39,9 +41,9 @@ void EXTI15_10_IRQHandler()
 
 void __init_all()
 {
-	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN | RCC_AHB1ENR_GPIOCEN;
-	RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
-	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN | RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_DMA2EN;
+	RCC->APB1ENR |= RCC_APB1ENR_USART2EN | RCC_APB1ENR_DACEN;
+	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN | RCC_APB2ENR_ADC1EN;
 
 	SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI0_PB | SYSCFG_EXTICR1_EXTI1_PB | SYSCFG_EXTICR1_EXTI2_PB | SYSCFG_EXTICR1_EXTI3_PB;
 	SYSCFG->EXTICR[1] |= SYSCFG_EXTICR2_EXTI4_PB | SYSCFG_EXTICR2_EXTI5_PB;
@@ -73,8 +75,8 @@ void __init_all()
 	DMA2_Stream0->CR &= ~DMA_SxCR_EN;
 	DMA2_Stream0->CR  |= DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 | DMA_SxCR_MINC;
 	DMA2_Stream0->PAR = (uint32_t)&ADC1->DR;
-	DMA2_Stream0->M0AR = (uint32_t)&buf;
-	DMA2_Stream0->NDTR = 7;
+	DMA2_Stream0->M0AR = (uint32_t)&adc_buffer;
+	DMA2_Stream0->NDTR = 70;
    	DMA2_Stream0->CR |= DMA_SxCR_EN;
 
 	GPIOA->MODER |= GPIO_MODER_MODER2_1 | GPIO_MODER_MODER3_1;
@@ -82,6 +84,60 @@ void __init_all()
 	USART2->CR1 |= USART_CR1_OVER8;
 	USART2->BRR = 0x08b;
 	USART2->CR1 |= USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
+
+	DAC->SWTRIGR |= DAC_SWTRIGR_SWTRIG1 | DAC_SWTRIGR_SWTRIG2;
+	DAC->DHR12R1 = 0;
+	DAC->DHR12R2 = 0;
+	DAC->CR |= DAC_CR_EN1 | DAC_CR_EN2;
+
+	GPIOA->BSRR |= GPIO_BSRR_BR_8;
+	GPIOB->BSRR |= GPIO_BSRR_BR_12 | GPIO_BSRR_BR_13 | GPIO_BSRR_BR_14  | GPIO_BSRR_BR_15;
+	GPIOC->BSRR |= GPIO_BSRR_BR_7  | GPIO_BSRR_BR_8 | GPIO_BSRR_BR_9;
+}
+
+void transmit_value(void *ad, int length)
+{
+	for(int i = length - 1; i >= 0; i--)
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = *((char*)ad + i);
+	}
+}
+
+void processing_adc_value()
+{
+	ADC1->CR2 |= ADC_CR2_SWSTART;
+	for(int i = 0; i <= 1000; i++);
+	for(int i = 0; i < 70; ++i)
+		adc_buffer[i] &= 0xff8;
+	int max_adc_value[7] = {adc_buffer[0],adc_buffer[1],adc_buffer[2],adc_buffer[3],adc_buffer[4],adc_buffer[5],adc_buffer[6]}, min_adc_value[7] = {adc_buffer[0],adc_buffer[1],adc_buffer[2],adc_buffer[3],adc_buffer[4],adc_buffer[5],adc_buffer[6]};
+	for(int i = 0; i < 7; ++i)
+		for(int j = 0; j < 70; j += 7)
+		{
+			if(adc_buffer[j+i] > max_adc_value[i])
+				max_adc_value[i] = adc_buffer[j+i];
+			if(adc_buffer[j+i] < min_adc_value[i])
+				min_adc_value[i] = adc_buffer[j+i];
+		}
+	for(int i = 0; i < 7; ++i)
+		for(int j = 0; j < 70; j += 7)
+			adc_value[i] += adc_buffer[j+i]/8-min_adc_value[i]/8-max_adc_value[i]/8;
+
+}
+
+void emergency_situations_check()
+{
+	processing_adc_value();
+	if(adc_value[0] >= 2000)
+		errors |= 0x1;
+	if(adc_value[1] >= 2000)
+		errors |= 0x2;
+}
+
+void connection_check()
+{
+	while(USART2->RDR != 0xfa);
+	while(USART2->RDR != 0x01);
 }
 
 int main(void)
@@ -89,9 +145,14 @@ int main(void)
 	__init_all();
 	while(1)
 	{
-		if(USART2->RDR == 0xFF)
-		{
-			GPIOB->BSRR |= GPIO_BSRR_BS_12;
-		}
+		processing_adc_value();
+		USART2->TDR = adc_value[0];
+		for(int i = 0; i <= 1000000; i++);
 	}
+	//emergency_situations_check();
+	//connection_check();
 }
+
+
+//if(adc_buffer[i] == adc_buffer[i+1] && adc_buffer[i+1] == adc_buffer[i+2] && adc_buffer[i+2] == adc_buffer[i+3] && adc_buffer[i+3] == adc_buffer[i+4] && adc_buffer[i+4] == adc_buffer[i+5] && adc_buffer[i+5] == adc_buffer[i+6] && adc_buffer[i+6] == adc_buffer[i+7] && adc_buffer[i+7] == adc_buffer[i+8] && adc_buffer[i+8] == adc_buffer[i+9])
+
