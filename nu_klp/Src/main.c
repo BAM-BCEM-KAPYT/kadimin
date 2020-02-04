@@ -2,10 +2,12 @@
 
 uint16_t adc_buffer[70];
 uint16_t adc_value[7];
-uint16_t errors;
+uint16_t errors = 0;
+uint16_t flags = 0;
 
 void EXTI0_IRQHandler()
 {
+	errors |= 0x10;
 	EXTI->PR |= EXTI_PR_PR0;
 }
 
@@ -73,7 +75,7 @@ void __init_all()
 	ADC1->CR2 |= ADC_CR2_DMA | ADC_CR2_DDS | ADC_CR2_CONT | ADC_CR2_ADON;
 
 	DMA2_Stream0->CR &= ~DMA_SxCR_EN;
-	DMA2_Stream0->CR  |= DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 | DMA_SxCR_MINC;
+	DMA2_Stream0->CR  |= DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 | DMA_SxCR_MINC | DMA_SxCR_CIRC;
 	DMA2_Stream0->PAR = (uint32_t)&ADC1->DR;
 	DMA2_Stream0->M0AR = (uint32_t)&adc_buffer;
 	DMA2_Stream0->NDTR = 70;
@@ -106,23 +108,37 @@ void transmit_value(void *ad, int length)
 
 void processing_adc_value()
 {
+	for(int i = 0; i < 7; ++i)
+		adc_value[i] = 0;
 	ADC1->CR2 |= ADC_CR2_SWSTART;
 	for(int i = 0; i <= 1000; i++);
 	for(int i = 0; i < 70; ++i)
-		adc_buffer[i] &= 0xff8;
-	int max_adc_value[7] = {adc_buffer[0],adc_buffer[1],adc_buffer[2],adc_buffer[3],adc_buffer[4],adc_buffer[5],adc_buffer[6]}, min_adc_value[7] = {adc_buffer[0],adc_buffer[1],adc_buffer[2],adc_buffer[3],adc_buffer[4],adc_buffer[5],adc_buffer[6]};
-	for(int i = 0; i < 7; ++i)
-		for(int j = 0; j < 70; j += 7)
+		adc_buffer[i] &= 0xfff8;
+	int max_adc_value[7], min_adc_value[7];
+	for(int i = 1; i < 7; ++i)
+		max_adc_value[i] = min_adc_value[i] = adc_buffer[i];
+	for(int i = 1; i < 7; ++i)
+		for(int j = 0; j < 10; ++j)
 		{
-			if(adc_buffer[j+i] > max_adc_value[i])
-				max_adc_value[i] = adc_buffer[j+i];
-			if(adc_buffer[j+i] < min_adc_value[i])
-				min_adc_value[i] = adc_buffer[j+i];
+			if(adc_buffer[i+j*7] > max_adc_value[i])
+				max_adc_value[i] = adc_buffer[i+j*7];
+			if(adc_buffer[i+j*7] < min_adc_value[i])
+				min_adc_value[i] = adc_buffer[i+j*7];
 		}
+	if(max_adc_value != min_adc_value)
+	{
+		for(int i = 0; i < 7; ++i)
+			for(int j = 0; j < 10; ++j)
+				adc_value[i] += adc_buffer[i+j*7]/10;
+	}
+	else
+	{
+		for(int i = 0; i < 7; ++i)
+			for(int j = 0; j < 10; ++j)
+				adc_value[i] += adc_buffer[i+j*7]/10;
+	}
 	for(int i = 0; i < 7; ++i)
-		for(int j = 0; j < 70; j += 7)
-			adc_value[i] += adc_buffer[j+i]/8-min_adc_value[i]/8-max_adc_value[i]/8;
-
+		adc_value[i] &= 0xfff8;
 }
 
 void emergency_situations_check()
@@ -130,29 +146,38 @@ void emergency_situations_check()
 	processing_adc_value();
 	if(adc_value[0] >= 2000)
 		errors |= 0x1;
-	if(adc_value[1] >= 2000)
+	if(adc_value[2] >= 2000)
 		errors |= 0x2;
+	if(flags &= 0x1 != 0)
+		errors |= 0x4;
+	if(flags &= 0x2 != 0)
+		errors |= 0x8;
 }
 
 void connection_check()
 {
 	while(USART2->RDR != 0xfa);
-	while(USART2->RDR != 0x01);
+	//while(USART2->RDR != 0x01);
+	if(errors == 0)
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xfb;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x02;
+	}
+	else
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xfb;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xff;
+		transmit_value(&errors,2);
+	}
 }
 
 int main(void)
 {
 	__init_all();
-	while(1)
-	{
-		processing_adc_value();
-		USART2->TDR = adc_value[0];
-		for(int i = 0; i <= 1000000; i++);
-	}
-	//emergency_situations_check();
-	//connection_check();
+	emergency_situations_check();
+	connection_check();
 }
-
-
-//if(adc_buffer[i] == adc_buffer[i+1] && adc_buffer[i+1] == adc_buffer[i+2] && adc_buffer[i+2] == adc_buffer[i+3] && adc_buffer[i+3] == adc_buffer[i+4] && adc_buffer[i+4] == adc_buffer[i+5] && adc_buffer[i+5] == adc_buffer[i+6] && adc_buffer[i+6] == adc_buffer[i+7] && adc_buffer[i+7] == adc_buffer[i+8] && adc_buffer[i+8] == adc_buffer[i+9])
-
