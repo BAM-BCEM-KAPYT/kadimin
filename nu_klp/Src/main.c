@@ -1,21 +1,25 @@
 #include"stm32f767xx.h"
 
-uint16_t adc_buffer[70];
-uint16_t adc_value[7];
+uint16_t adc_buffer[60];
+uint16_t adc_value[6];
 uint8_t analog_errors = 0;
 uint16_t digital_errors = 0;
 uint8_t flag_errors = 0;
 uint16_t flags = 0;
+uint8_t pilot_laser_1_power = 0;
+uint8_t pilot_laser_2_power = 0;
 
 void EXTI0_IRQHandler()
 {
-	digital_errors |= 0x1;
+	if((flags &= 0x10 == 0) && (flags &= 0x8000 == 0))
+		digital_errors |= 0x1;
 	EXTI->PR |= EXTI_PR_PR0;
 }
 
 void EXTI1_IRQHandler()
 {
-	digital_errors |= 0x2;
+	if((flags &= 0x20 == 0) && (flags &= 0x8000 == 0))
+		digital_errors |= 0x2;
 	EXTI->PR |= EXTI_PR_PR1;
 }
 
@@ -34,6 +38,7 @@ void EXTI4_IRQHandler()
 
 void EXTI9_5_IRQHandler()
 {
+
 	EXTI->PR |= EXTI_PR_PR5;
 }
 
@@ -45,7 +50,7 @@ void EXTI15_10_IRQHandler()
 void __init_all()
 {
 	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN | RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_DMA2EN;
-	RCC->APB1ENR |= RCC_APB1ENR_USART2EN | RCC_APB1ENR_DACEN;
+	RCC->APB1ENR |= RCC_APB1ENR_USART2EN | RCC_APB1ENR_DACEN | RCC_APB1ENR_TIM3EN;
 	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN | RCC_APB2ENR_ADC1EN;
 
 	SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI0_PB | SYSCFG_EXTICR1_EXTI1_PB | SYSCFG_EXTICR1_EXTI2_PB;
@@ -64,13 +69,21 @@ void __init_all()
 
 	GPIOA->MODER |= GPIO_MODER_MODER8_0;
 	GPIOB->MODER |= GPIO_MODER_MODER12_0 | GPIO_MODER_MODER13_0 | GPIO_MODER_MODER14_0 | GPIO_MODER_MODER15_0;
-	GPIOC->MODER |= GPIO_MODER_MODER7_0 | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0;
+	GPIOC->MODER |= GPIO_MODER_MODER7_1 | GPIO_MODER_MODER8_1 | GPIO_MODER_MODER9_0;
+	GPIOC->AFR[0] |= GPIO_AFRL_AFRL7_1;
+	GPIOC->AFR[1] |= GPIO_AFRH_AFRH0_1;
+	TIM3->ARR = 200;
+	TIM3->CCR2 = pilot_laser_1_power;
+	TIM3->CCR3 = pilot_laser_2_power;
+	TIM3->CCMR1 |= TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_2;
+	TIM3->CCMR2 |= TIM_CCMR2_OC3M_1 | TIM_CCMR2_OC3M_2;
+	TIM3->CCER |= TIM_CCER_CC2E | TIM_CCER_CC3E;
+	TIM3->CR1 |= TIM_CR1_CEN;
 
 	GPIOA->MODER |= GPIO_MODER_MODER0 | GPIO_MODER_MODER1 | GPIO_MODER_MODER6 | GPIO_MODER_MODER7;
 	GPIOC->MODER |= GPIO_MODER_MODER1 | GPIO_MODER_MODER2;
 	ADC1->SQR1 |= ADC_SQR1_L_1 | ADC_SQR1_L_2;
-	ADC1->SQR3 |= ADC_SQR3_SQ2_0 | ADC_SQR3_SQ3_2 | ADC_SQR3_SQ3_1 | ADC_SQR3_SQ4_2 | ADC_SQR3_SQ4_1 | ADC_SQR3_SQ4_0 | ADC_SQR3_SQ6_3 | ADC_SQR3_SQ6_1 | ADC_SQR3_SQ6_0;
-	ADC1->SQR2 |= ADC_SQR2_SQ7_3 | ADC_SQR2_SQ7_2;
+	ADC1->SQR3 |= ADC_SQR3_SQ2_0 | ADC_SQR3_SQ3_2 | ADC_SQR3_SQ3_1 | ADC_SQR3_SQ4_2 | ADC_SQR3_SQ4_1 | ADC_SQR3_SQ4_0 | ADC_SQR3_SQ5_3 | ADC_SQR3_SQ5_1 | ADC_SQR3_SQ5_0 | ADC_SQR3_SQ6_3 | ADC_SQR3_SQ6_2;
 	ADC1->CR1 |= ADC_CR1_SCAN;
 	ADC1->CR2 |= ADC_CR2_DMA | ADC_CR2_DDS | ADC_CR2_CONT | ADC_CR2_ADON;
 
@@ -78,7 +91,7 @@ void __init_all()
 	DMA2_Stream0->CR  |= DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 | DMA_SxCR_MINC | DMA_SxCR_CIRC;
 	DMA2_Stream0->PAR = (uint32_t)&ADC1->DR;
 	DMA2_Stream0->M0AR = (uint32_t)&adc_buffer;
-	DMA2_Stream0->NDTR = 70;
+	DMA2_Stream0->NDTR = 60;
    	DMA2_Stream0->CR |= DMA_SxCR_EN;
 
 	GPIOA->MODER |= GPIO_MODER_MODER2_1 | GPIO_MODER_MODER3_1;
@@ -108,36 +121,36 @@ void transmit_value(void *ad, int length)
 
 void processing_adc_value()
 {
-	for(int i = 0; i < 7; ++i)
+	for(int i = 0; i < 6; ++i)
 		adc_value[i] = 0;
 	ADC1->CR2 |= ADC_CR2_SWSTART;
 	for(int i = 0; i <= 1000; i++);
-	for(int i = 0; i < 70; ++i)
+	for(int i = 0; i < 60; ++i)
 		adc_buffer[i] &= 0xfff8;
-	int max_adc_value[7], min_adc_value[7];
-	for(int i = 1; i < 7; ++i)
+	int max_adc_value[6], min_adc_value[6];
+	for(int i = 1; i < 6; ++i)
 		max_adc_value[i] = min_adc_value[i] = adc_buffer[i];
-	for(int i = 1; i < 7; ++i)
+	for(int i = 1; i < 6; ++i)
 		for(int j = 0; j < 10; ++j)
 		{
-			if(adc_buffer[i+j*7] > max_adc_value[i])
-				max_adc_value[i] = adc_buffer[i+j*7];
-			if(adc_buffer[i+j*7] < min_adc_value[i])
-				min_adc_value[i] = adc_buffer[i+j*7];
+			if(adc_buffer[i+j*6] > max_adc_value[i])
+				max_adc_value[i] = adc_buffer[i+j*6];
+			if(adc_buffer[i+j*6] < min_adc_value[i])
+				min_adc_value[i] = adc_buffer[i+j*6];
 		}
 	if(max_adc_value != min_adc_value)
 	{
-		for(int i = 0; i < 7; ++i)
+		for(int i = 0; i < 6; ++i)
 			for(int j = 0; j < 10; ++j)
-				adc_value[i] += adc_buffer[i+j*7]/10;
+				adc_value[i] += adc_buffer[i+j*6]/10;
 	}
 	else
 	{
-		for(int i = 0; i < 7; ++i)
+		for(int i = 0; i < 6; ++i)
 			for(int j = 0; j < 10; ++j)
-				adc_value[i] += adc_buffer[i+j*7]/10;
+				adc_value[i] += adc_buffer[i+j*6]/10;
 	}
-	for(int i = 0; i < 7; ++i)
+	for(int i = 0; i < 6; ++i)
 		adc_value[i] &= 0xfff8;
 }
 
@@ -146,61 +159,111 @@ void emergency_situations_check()
 	processing_adc_value();
 	if(adc_value[0] >= 2000)
 		analog_errors |= 0x1;
+	if(adc_value[1] >= 2000)
+		analog_errors |= 0x2;
 	if(adc_value[2] >= 2000)
 		analog_errors |= 0x4;
-	if(flags &= 0x1 != 0)
-		flag_errors |= 0x80;
-	if(flags &= 0x2 != 0)
-		flag_errors |= 0x100;
+	if(adc_value[3] >= 2000)
+		analog_errors |= 0x8;
+	if(adc_value[4] >= 1500)
+	{
+		GPIOA->BSRR |= GPIO_BSRR_BS_8;
+		if(adc_value[4] >= 2000)
+			analog_errors |= 0x10;
+		if(adc_value[4] <= 1700)
+			analog_errors &= ~0x10;
+	}
+	if(adc_value[5] >= 2000)
+	{
+		GPIOA->BSRR |= GPIO_BSRR_BS_8;
+		if(adc_value[5] >= 2000)
+			analog_errors |= 0x10;
+		if(adc_value[5] <= 1700)
+			analog_errors &= ~0x10;
+	}
+	if(adc_value[4] <= 1300 && adc_value[5] <= 1300)
+		GPIOA->BSRR |= GPIO_BSRR_BR_8;
 }
 
 void connection_check()
 {
+	flags |= 0x8000;
 	while(USART2->RDR != 0xfa);
-	//while(USART2->RDR != 0x01);
-	if(errors == 0)
+	emergency_situations_check();
+	if(digital_errors == 0 && analog_errors == 0 && flag_errors == 0)
 	{
 		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xfb;
+		USART2->TDR = 0xfa;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x02;
+		USART2->TDR = 0x00;
 	}
-	else
+	if(analog_errors != 0)
 	{
 		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xfb;
+		USART2->TDR = 0xfa;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xff;
-	//	transmit_value(&errors,2);
+		USART2->TDR = 0xf1;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = analog_errors;
 	}
+	if(digital_errors != 0)
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xfa;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xf2;
+		transmit_value(&digital_errors,2);
+	}
+	if(flag_errors != 0)
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xfa;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xf3;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = flag_errors;
+	}
+	flags &= ~0x8000;
+
 }
 
 void standby_state()
 {
-	flags |= 0x8000;
-	while(1)
+	while(USART2->RDR != 0xfb)
 	{
-		processing_adc_value();
-		if(adc_value[0] >= 2000)
-			analog_errors |= 0x1;
-		if(adc_value[1] >= 2000)
-			analog_errors |= 0x2;
-		if(adc_value[2] >= 2000)
-			analog_errors |= 0x4;
-		if(adc_value[3] >= 2000)
-			analog_errors |= 0x8;
-		if(adc_value[4] >= 2000)
-			analog_errors |= 0x10;
-		if(adc_value[6] >= 2000)
-			analog_errors |= 0x40;
+		TIM3->CCR2 = pilot_laser_1_power;
+		TIM3->CCR3 = pilot_laser_2_power;
+		emergency_situations_check();
+		if(digital_errors == 0 && analog_errors == 0)
+		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xfb;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x00;
+		}
+		if(analog_errors != 0)
+		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xfb;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xf1;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = analog_errors;
+		}
+		if(digital_errors != 0)
+		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xfb;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xf2;
+			transmit_value(&digital_errors,2);
+		}
 	}
-
 }
 
 int main(void)
 {
 	__init_all();
-	emergency_situations_check();
 	connection_check();
 	standby_state();
 }
