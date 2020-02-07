@@ -1,6 +1,7 @@
 #include"stm32f767xx.h"
 
-uint16_t status_word[63];
+uint16_t status_word[14];
+uint16_t generation_parametrs[16];
 uint16_t adc_buffer[60];
 uint16_t adc_value[6];
 uint8_t analog_errors = 0;
@@ -37,13 +38,35 @@ void EXTI4_IRQHandler()
 
 void EXTI9_5_IRQHandler()
 {
-
-	EXTI->PR |= EXTI_PR_PR5;
+	if (EXTI->PR & (1<<5))
+	{
+		digital_errors |= 0x10;
+		EXTI->PR |= EXTI_PR_PR5;
+	}
+	if (EXTI->PR & (1<<8))
+	{
+		digital_errors |= 0x20;
+		EXTI->PR |= EXTI_PR_PR8;
+	}
+	if (EXTI->PR & (1<<9))
+	{
+		digital_errors |= 0x40;
+		EXTI->PR |= EXTI_PR_PR9;
+	}
 }
 
 void EXTI15_10_IRQHandler()
 {
-	EXTI->PR |= EXTI_PR_PR10;
+	if (EXTI->PR & (1<<10))
+	{
+		digital_errors |= 0x80;
+		EXTI->PR |= EXTI_PR_PR10;
+	}
+	if (EXTI->PR & (1<<11))
+	{
+		digital_errors |= 0x100;
+		EXTI->PR |= EXTI_PR_PR11;
+	}
 }
 
 void init_all()
@@ -197,26 +220,30 @@ void getting_status_word()
 {
 	while ((USART2->ISR & USART_ISR_RXNE )==0);
 	while(USART2->RDR != 0xf1);
-	for(int i = 0; i < 63; ++i)
+	for(int i = 0; i < 14; ++i)
 		read_value(&status_word[i],2);
 }
 
-void __getting_generation_parametrs()
+void getting_generation_parametrs()
 {
+	while ((USART2->ISR & USART_ISR_RXNE )==0);
+	while(USART2->RDR != 0xf6);
+	for(int i = 0; i < 16; ++i)
+		read_value(&generation_parametrs[i],2);
+}
+
+void transition_to_ready()
+{
+	getting_generation_parametrs();
 
 }
 
-void __service_menu()
+void service_menu()
 {
 	while ((USART2->ISR & USART_ISR_RXNE )==0);
 	while(USART2->RDR != 0xf5);
-	for(int i = 0; i < 63; ++i)
+	for(int i = 0; i < 14; ++i)
 		read_value(&status_word[i],2);
-}
-
-void __transition_to_ready()
-{
-
 }
 
 void connection_check()
@@ -284,17 +311,17 @@ void input_generation_parameters_state()
 	}
 	if(USART2->RDR == 0xf3)
 	{
-		__getting_generation_parametrs();
+		getting_generation_parametrs();
 		goto begin;
 	}
 	if(USART2->RDR == 0xf4)
 	{
-		__service_menu();
+		service_menu();
 		goto begin;
 	}
 	if(USART2->RDR == 0xf2)
 	{
-		__transition_to_ready();
+		transition_to_ready();
 		goto begin;
 	}
 }
