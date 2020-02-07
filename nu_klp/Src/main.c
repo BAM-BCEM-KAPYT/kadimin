@@ -1,61 +1,88 @@
 #include"stm32f767xx.h"
 
-uint16_t adc_buffer[70];
-uint16_t adc_value[7];
-uint16_t errors = 0;
+uint16_t status_word[14];
+uint16_t generation_parametrs[16];
+uint16_t adc_buffer[60];
+uint16_t adc_value[6];
+uint8_t analog_errors = 0;
+uint16_t digital_errors = 0;
+uint8_t flag_errors = 0;
 uint16_t flags = 0;
 
 void EXTI0_IRQHandler()
 {
-	errors |= 0x10;
+	if(flags &= 0x10 == 0)
+		digital_errors |= 0x1;
 	EXTI->PR |= EXTI_PR_PR0;
 }
 
 void EXTI1_IRQHandler()
 {
+	if(flags &= 0x20 == 0)
+		digital_errors |= 0x2;
 	EXTI->PR |= EXTI_PR_PR1;
 }
 
 void EXTI2_IRQHandler()
 {
+	digital_errors |= 0x4;
 	EXTI->PR |= EXTI_PR_PR2;
-}
-
-void EXTI3_IRQHandler()
-{
-	EXTI->PR |= EXTI_PR_PR3;
 }
 
 void EXTI4_IRQHandler()
 {
+	if(flags &= 0x8000 != 0)
+		digital_errors |= 0x8;
 	EXTI->PR |= EXTI_PR_PR4;
 }
 
 void EXTI9_5_IRQHandler()
 {
-	EXTI->PR |= EXTI_PR_PR5;
+	if (EXTI->PR & (1<<5))
+	{
+		digital_errors |= 0x10;
+		EXTI->PR |= EXTI_PR_PR5;
+	}
+	if (EXTI->PR & (1<<8))
+	{
+		digital_errors |= 0x20;
+		EXTI->PR |= EXTI_PR_PR8;
+	}
+	if (EXTI->PR & (1<<9))
+	{
+		digital_errors |= 0x40;
+		EXTI->PR |= EXTI_PR_PR9;
+	}
 }
 
 void EXTI15_10_IRQHandler()
 {
-	EXTI->PR |= EXTI_PR_PR10;
+	if (EXTI->PR & (1<<10))
+	{
+		digital_errors |= 0x80;
+		EXTI->PR |= EXTI_PR_PR10;
+	}
+	if (EXTI->PR & (1<<11))
+	{
+		digital_errors |= 0x100;
+		EXTI->PR |= EXTI_PR_PR11;
+	}
 }
 
-void __init_all()
+void init_all()
 {
 	RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN | RCC_AHB1ENR_GPIOBEN | RCC_AHB1ENR_GPIOCEN | RCC_AHB1ENR_DMA2EN;
-	RCC->APB1ENR |= RCC_APB1ENR_USART2EN | RCC_APB1ENR_DACEN;
+	RCC->APB1ENR |= RCC_APB1ENR_USART2EN | RCC_APB1ENR_DACEN | RCC_APB1ENR_TIM3EN;
 	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN | RCC_APB2ENR_ADC1EN;
 
-	SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI0_PB | SYSCFG_EXTICR1_EXTI1_PB | SYSCFG_EXTICR1_EXTI2_PB | SYSCFG_EXTICR1_EXTI3_PB;
+	SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI0_PB | SYSCFG_EXTICR1_EXTI1_PB | SYSCFG_EXTICR1_EXTI2_PB;
 	SYSCFG->EXTICR[1] |= SYSCFG_EXTICR2_EXTI4_PB | SYSCFG_EXTICR2_EXTI5_PB;
 	SYSCFG->EXTICR[2] |= SYSCFG_EXTICR3_EXTI8_PB | SYSCFG_EXTICR3_EXTI9_PB | SYSCFG_EXTICR3_EXTI10_PB | SYSCFG_EXTICR3_EXTI11_PB;
-	EXTI->IMR |= EXTI_IMR_MR0 | EXTI_IMR_MR1 | EXTI_IMR_MR2 | EXTI_IMR_MR3 | EXTI_IMR_MR4 | EXTI_IMR_MR5 | EXTI_IMR_MR8 | EXTI_IMR_MR9 | EXTI_IMR_MR10 | EXTI_IMR_MR11;
-	EXTI->RTSR |= EXTI_RTSR_TR0 | EXTI_RTSR_TR1 | EXTI_RTSR_TR2 | EXTI_RTSR_TR3 | EXTI_RTSR_TR4 | EXTI_RTSR_TR5 | EXTI_RTSR_TR8 | EXTI_RTSR_TR9 | EXTI_RTSR_TR10 | EXTI_RTSR_TR11;
+	EXTI->IMR |= EXTI_IMR_MR0 | EXTI_IMR_MR1 | EXTI_IMR_MR2 | EXTI_IMR_MR4 | EXTI_IMR_MR5 | EXTI_IMR_MR8 | EXTI_IMR_MR9 | EXTI_IMR_MR10 | EXTI_IMR_MR11;
+	EXTI->RTSR |= EXTI_RTSR_TR0 | EXTI_RTSR_TR1 | EXTI_RTSR_TR2 | EXTI_RTSR_TR4 | EXTI_RTSR_TR5 | EXTI_RTSR_TR8 | EXTI_RTSR_TR9 | EXTI_RTSR_TR10 | EXTI_RTSR_TR11;
 	NVIC_EnableIRQ(EXTI0_IRQn);
 	NVIC_EnableIRQ(EXTI1_IRQn);
 	NVIC_EnableIRQ(EXTI2_IRQn);
-	NVIC_EnableIRQ(EXTI3_IRQn);
 	NVIC_EnableIRQ(EXTI4_IRQn);
 	NVIC_EnableIRQ(EXTI4_IRQn);
 	NVIC_EnableIRQ(EXTI9_5_IRQn);
@@ -64,13 +91,21 @@ void __init_all()
 
 	GPIOA->MODER |= GPIO_MODER_MODER8_0;
 	GPIOB->MODER |= GPIO_MODER_MODER12_0 | GPIO_MODER_MODER13_0 | GPIO_MODER_MODER14_0 | GPIO_MODER_MODER15_0;
-	GPIOC->MODER |= GPIO_MODER_MODER7_0 | GPIO_MODER_MODER8_0 | GPIO_MODER_MODER9_0;
+	GPIOC->MODER |= GPIO_MODER_MODER7_1 | GPIO_MODER_MODER8_1 | GPIO_MODER_MODER9_0;
+	GPIOC->AFR[0] |= GPIO_AFRL_AFRL7_1;
+	GPIOC->AFR[1] |= GPIO_AFRH_AFRH0_1;
+	TIM3->ARR = 200;
+	TIM3->CCR2 = 0;
+	TIM3->CCR3 = 0;
+	TIM3->CCMR1 |= TIM_CCMR1_OC2M_1 | TIM_CCMR1_OC2M_2;
+	TIM3->CCMR2 |= TIM_CCMR2_OC3M_1 | TIM_CCMR2_OC3M_2;
+	TIM3->CCER |= TIM_CCER_CC2E | TIM_CCER_CC3E;
+	TIM3->CR1 |= TIM_CR1_CEN;
 
 	GPIOA->MODER |= GPIO_MODER_MODER0 | GPIO_MODER_MODER1 | GPIO_MODER_MODER6 | GPIO_MODER_MODER7;
-	GPIOC->MODER |= GPIO_MODER_MODER0 | GPIO_MODER_MODER1 | GPIO_MODER_MODER2;
+	GPIOC->MODER |= GPIO_MODER_MODER1 | GPIO_MODER_MODER2;
 	ADC1->SQR1 |= ADC_SQR1_L_1 | ADC_SQR1_L_2;
-	ADC1->SQR3 |= ADC_SQR3_SQ2_0 | ADC_SQR3_SQ3_2 | ADC_SQR3_SQ3_1 | ADC_SQR3_SQ4_2 | ADC_SQR3_SQ4_1 | ADC_SQR3_SQ4_0 | ADC_SQR3_SQ5_3 | ADC_SQR3_SQ5_1 | ADC_SQR3_SQ6_3 | ADC_SQR3_SQ6_1 | ADC_SQR3_SQ6_0;
-	ADC1->SQR2 |= ADC_SQR2_SQ7_3 | ADC_SQR2_SQ7_2;
+	ADC1->SQR3 |= ADC_SQR3_SQ2_0 | ADC_SQR3_SQ3_2 | ADC_SQR3_SQ3_1 | ADC_SQR3_SQ4_2 | ADC_SQR3_SQ4_1 | ADC_SQR3_SQ4_0 | ADC_SQR3_SQ5_3 | ADC_SQR3_SQ5_1 | ADC_SQR3_SQ5_0 | ADC_SQR3_SQ6_3 | ADC_SQR3_SQ6_2;
 	ADC1->CR1 |= ADC_CR1_SCAN;
 	ADC1->CR2 |= ADC_CR2_DMA | ADC_CR2_DDS | ADC_CR2_CONT | ADC_CR2_ADON;
 
@@ -78,7 +113,7 @@ void __init_all()
 	DMA2_Stream0->CR  |= DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 | DMA_SxCR_MINC | DMA_SxCR_CIRC;
 	DMA2_Stream0->PAR = (uint32_t)&ADC1->DR;
 	DMA2_Stream0->M0AR = (uint32_t)&adc_buffer;
-	DMA2_Stream0->NDTR = 70;
+	DMA2_Stream0->NDTR = 60;
    	DMA2_Stream0->CR |= DMA_SxCR_EN;
 
 	GPIOA->MODER |= GPIO_MODER_MODER2_1 | GPIO_MODER_MODER3_1;
@@ -101,83 +136,201 @@ void transmit_value(void *ad, int length)
 {
 	for(int i = length - 1; i >= 0; i--)
 	{
-		while ((USART2->ISR & USART_ISR_TXE)==0);
+		while((USART2->ISR & USART_ISR_TXE) == 0);
 		USART2->TDR = *((char*)ad + i);
+	}
+}
+
+void read_value(void *ad, int length)
+{
+	for(int i = length - 1; i >= 0; i--)
+	{
+		while((USART2->ISR & USART_ISR_RXNE) == 0);
+		*((char*)ad + i) = USART2->RDR;
 	}
 }
 
 void processing_adc_value()
 {
-	for(int i = 0; i < 7; ++i)
+	for(int i = 0; i < 6; ++i)
 		adc_value[i] = 0;
 	ADC1->CR2 |= ADC_CR2_SWSTART;
 	for(int i = 0; i <= 1000; i++);
-	for(int i = 0; i < 70; ++i)
+	for(int i = 0; i < 60; ++i)
 		adc_buffer[i] &= 0xfff8;
-	int max_adc_value[7], min_adc_value[7];
-	for(int i = 1; i < 7; ++i)
+	int max_adc_value[6], min_adc_value[6];
+	for(int i = 1; i < 6; ++i)
 		max_adc_value[i] = min_adc_value[i] = adc_buffer[i];
-	for(int i = 1; i < 7; ++i)
+	for(int i = 1; i < 6; ++i)
 		for(int j = 0; j < 10; ++j)
 		{
-			if(adc_buffer[i+j*7] > max_adc_value[i])
-				max_adc_value[i] = adc_buffer[i+j*7];
-			if(adc_buffer[i+j*7] < min_adc_value[i])
-				min_adc_value[i] = adc_buffer[i+j*7];
+			if(adc_buffer[i+j*6] > max_adc_value[i])
+				max_adc_value[i] = adc_buffer[i+j*6];
+			if(adc_buffer[i+j*6] < min_adc_value[i])
+				min_adc_value[i] = adc_buffer[i+j*6];
 		}
 	if(max_adc_value != min_adc_value)
 	{
-		for(int i = 0; i < 7; ++i)
+		for(int i = 0; i < 6; ++i)
 			for(int j = 0; j < 10; ++j)
-				adc_value[i] += adc_buffer[i+j*7]/10;
+				adc_value[i] += adc_buffer[i+j*6]/10;
 	}
 	else
 	{
-		for(int i = 0; i < 7; ++i)
+		for(int i = 0; i < 6; ++i)
 			for(int j = 0; j < 10; ++j)
-				adc_value[i] += adc_buffer[i+j*7]/10;
+				adc_value[i] += adc_buffer[i+j*6]/10;
 	}
-	for(int i = 0; i < 7; ++i)
+	for(int i = 0; i < 6; ++i)
 		adc_value[i] &= 0xfff8;
 }
 
-void emergency_situations_check()
+void analog_emergency_situations_check()
 {
 	processing_adc_value();
 	if(adc_value[0] >= 2000)
-		errors |= 0x1;
+		analog_errors |= 0x1;
+	if(adc_value[1] >= 2000)
+		analog_errors |= 0x2;
 	if(adc_value[2] >= 2000)
-		errors |= 0x2;
-	if(flags &= 0x1 != 0)
-		errors |= 0x4;
-	if(flags &= 0x2 != 0)
-		errors |= 0x8;
+		analog_errors |= 0x4;
+	if(adc_value[3] >= 2000)
+		analog_errors |= 0x8;
+	if(adc_value[4] >= 1500)
+	{
+		GPIOA->BSRR |= GPIO_BSRR_BS_8;
+		if(adc_value[4] >= 2000)
+			analog_errors |= 0x10;
+		if(adc_value[4] <= 1700)
+			analog_errors &= ~0x10;
+	}
+	if(adc_value[5] >= 2000)
+	{
+		GPIOA->BSRR |= GPIO_BSRR_BS_8;
+		if(adc_value[5] >= 2000)
+			analog_errors |= 0x10;
+		if(adc_value[5] <= 1700)
+			analog_errors &= ~0x10;
+	}
+	if(adc_value[4] <= 1300 && adc_value[5] <= 1300)
+		GPIOA->BSRR |= GPIO_BSRR_BR_8;
+}
+
+void getting_status_word()
+{
+	while ((USART2->ISR & USART_ISR_RXNE )==0);
+	while(USART2->RDR != 0xf1);
+	for(int i = 0; i < 14; ++i)
+		read_value(&status_word[i],2);
+}
+
+void getting_generation_parametrs()
+{
+	while ((USART2->ISR & USART_ISR_RXNE )==0);
+	while(USART2->RDR != 0xf6);
+	for(int i = 0; i < 16; ++i)
+		read_value(&generation_parametrs[i],2);
+}
+
+void transition_to_ready()
+{
+	getting_generation_parametrs();
+
+}
+
+void service_menu()
+{
+	while ((USART2->ISR & USART_ISR_RXNE )==0);
+	while(USART2->RDR != 0xf5);
+	for(int i = 0; i < 14; ++i)
+		read_value(&status_word[i],2);
 }
 
 void connection_check()
 {
-	while(USART2->RDR != 0xfa);
-	//while(USART2->RDR != 0x01);
-	if(errors == 0)
+	while((USART2->ISR & USART_ISR_RXNE) == 0);
+	while(USART2->RDR != 0xf0);
+	while ((USART2->ISR & USART_ISR_TXE)==0);
+	USART2->TDR = 0xe0;
+}
+
+void send_ll_state()
+{
+	analog_emergency_situations_check();
+	if(analog_errors == 0 && digital_errors == 0)
 	{
 		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xfb;
+		USART2->TDR = 0xe1;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x02;
+		USART2->TDR = 0x0e;
 	}
-	else
+	if(analog_errors != 0)
 	{
 		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xfb;
+		USART2->TDR = 0xe1;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xff;
-		transmit_value(&errors,2);
+		USART2->TDR = 0x1e;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = analog_errors;
+	}
+	if(digital_errors != 0)
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xe1;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x2e;
+		transmit_value(&digital_errors,2);
+	}
+}
+
+void input_generation_parameters_state()
+{
+	begin:
+	TIM3->CCR2 = status_word[10];
+	TIM3->CCR3 = status_word[11];
+	while ((USART2->ISR & USART_ISR_TXE)==0)
+	{
+		analog_emergency_situations_check();
+		if(analog_errors != 0)
+		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xe2;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x1e;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = analog_errors;
+		}
+		if(digital_errors != 0)
+		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xe2;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x2e;
+			transmit_value(&digital_errors,2);
+		}
+	}
+	if(USART2->RDR == 0xf3)
+	{
+		getting_generation_parametrs();
+		goto begin;
+	}
+	if(USART2->RDR == 0xf4)
+	{
+		service_menu();
+		goto begin;
+	}
+	if(USART2->RDR == 0xf2)
+	{
+		transition_to_ready();
+		goto begin;
 	}
 }
 
 int main(void)
 {
-	__init_all();
-	emergency_situations_check();
+	init_all();
 	connection_check();
+	getting_status_word();
+	send_ll_state();
+	input_generation_parameters_state();
 }
