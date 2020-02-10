@@ -269,8 +269,22 @@ void transition_to_ready()
 		read_value(&status_word[i],2);
 	if(analog_errors == 0 && digital_errors == 0)
 	{
+		//считывание радиометки
 		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe3;
+		USART2->TDR = 0xe4;
+		while ((USART2->ISR & USART_ISR_TXE) == 0)
+		{
+			if(USART2->RDR == 0xf7)
+			{
+				//считывание радиометки
+			}
+			if(USART2->RDR == 0xf8)
+			{
+				GPIOB->BSRR |= GPOI_BSRR_BS_14;
+
+			}
+		}
+
 	}
 	if(analog_errors != 0)
 	{
