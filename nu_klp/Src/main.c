@@ -216,42 +216,20 @@ void analog_emergency_situations_check()
 		GPIOA->BSRR |= GPIO_BSRR_BR_8;
 }
 
-void getting_status_word()
-{
-	while ((USART2->ISR & USART_ISR_RXNE )==0);
-	while(USART2->RDR != 0xf1);
-	for(int i = 0; i < 14; ++i)
-		read_value(&status_word[i],2);
-}
-
-void getting_generation_parametrs()
-{
-	while ((USART2->ISR & USART_ISR_RXNE )==0);
-	while(USART2->RDR != 0xf6);
-	for(int i = 0; i < 16; ++i)
-		read_value(&generation_parametrs[i],2);
-}
-
-void transition_to_ready()
-{
-	getting_generation_parametrs();
-
-}
-
-void service_menu()
-{
-	while ((USART2->ISR & USART_ISR_RXNE )==0);
-	while(USART2->RDR != 0xf5);
-	for(int i = 0; i < 14; ++i)
-		read_value(&status_word[i],2);
-}
-
 void connection_check()
 {
 	while((USART2->ISR & USART_ISR_RXNE) == 0);
 	while(USART2->RDR != 0xf0);
 	while ((USART2->ISR & USART_ISR_TXE)==0);
 	USART2->TDR = 0xe0;
+}
+
+void getting_status_word()
+{
+	while ((USART2->ISR & USART_ISR_RXNE )==0);
+	while(USART2->RDR != 0xf1);
+	for(int i = 0; i < 14; ++i)
+		read_value(&status_word[i],2);
 }
 
 void send_ll_state()
@@ -283,40 +261,74 @@ void send_ll_state()
 	}
 }
 
+void transition_to_ready()
+{
+	while ((USART2->ISR & USART_ISR_RXNE ) == 0);
+	while(USART2->RDR != 0xf5);
+	for(int i = 0; i < 14; ++i)
+		read_value(&status_word[i],2);
+	if(analog_errors == 0 && digital_errors == 0)
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xe3;
+	}
+	if(analog_errors != 0)
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xe3;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x1e;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = analog_errors;
+	}
+	if(digital_errors != 0)
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xe3;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x2e;
+		transmit_value(&digital_errors,2);
+	}
+}
+
 void input_generation_parameters_state()
 {
 	begin:
 	TIM3->CCR2 = status_word[10];
 	TIM3->CCR3 = status_word[11];
-	while ((USART2->ISR & USART_ISR_TXE)==0)
+	while ((USART2->ISR & USART_ISR_TXE) == 0)
 	{
 		analog_emergency_situations_check();
 		if(analog_errors != 0)
 		{
-			while ((USART2->ISR & USART_ISR_TXE)==0);
+			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = 0xe2;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
+			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = 0x1e;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
+			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = analog_errors;
 		}
 		if(digital_errors != 0)
 		{
-			while ((USART2->ISR & USART_ISR_TXE)==0);
+			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = 0xe2;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
+			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = 0x2e;
 			transmit_value(&digital_errors,2);
 		}
 	}
 	if(USART2->RDR == 0xf3)
 	{
-		getting_generation_parametrs();
+		for(int i = 0; i < 16; ++i)
+			read_value(&generation_parametrs[i],2);
 		goto begin;
 	}
 	if(USART2->RDR == 0xf4)
 	{
-		service_menu();
+		while ((USART2->ISR & USART_ISR_RXNE ) == 0);
+		while(USART2->RDR != 0xf5);
+		for(int i = 0; i < 14; ++i)
+			read_value(&status_word[i],2);
 		goto begin;
 	}
 	if(USART2->RDR == 0xf2)
