@@ -2,3 +2,4 @@ nu_klp/*
 !nu_klp/Src
 nu_klp/Src/*
 !nu_klp/Src/main.c
+!nu_klp/Src/protocol.docx
