@@ -1,7 +1,7 @@
 #include"stm32f767xx.h"
 
 uint16_t status_word[14];
-uint16_t generation_parametrs[16];
+uint16_t generation_parametrs[27];
 uint16_t adc_buffer[60];
 uint16_t adc_value[6];
 uint8_t analog_errors = 0;
@@ -191,8 +191,12 @@ void connection_check()
 {
 	while((USART2->ISR & USART_ISR_RXNE) == 0);
 	while(USART2->RDR != 0xf0);
+	while((USART2->ISR & USART_ISR_RXNE) == 0);
+	while(USART2->RDR != 0xf1);
 	while ((USART2->ISR & USART_ISR_TXE)==0);
 	USART2->TDR = 0xe0;
+	while ((USART2->ISR & USART_ISR_TXE)==0);
+	USART2->TDR = 0xf1;
 }
 
 void getting_status_word()
@@ -234,13 +238,13 @@ void send_ll_state()
 
 void ready_state()
 {
-	while(timer_ready_state <= 14400)
+	while(timer_ready_state <= 14400 && USART2->RDR != 0xfa && USART2->RDR != 0xfb)
 	{
 		analog_emergency_situations_check();
 		if(analog_errors != 0)
 		{
 			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0xe3;
+			USART2->TDR = 0xe5;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = 0x1e;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
@@ -249,7 +253,7 @@ void ready_state()
 		if(digital_errors != 0)
 		{
 			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0xe3;
+			USART2->TDR = 0xe5;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = 0x2e;
 			transmit_value(&digital_errors,2);
@@ -263,7 +267,7 @@ void transition_to_ready()
 {
 	while ((USART2->ISR & USART_ISR_RXNE ) == 0);
 	while(USART2->RDR != 0xf3);
-	for(int i = 0; i < 16; ++i)
+	for(int i = 0; i < 27; ++i)
 		read_value(&generation_parametrs[i],2);
 	analog_emergency_situations_check();
 	if(analog_errors == 0 && digital_errors == 0)
@@ -272,19 +276,18 @@ void transition_to_ready()
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0xe4;
 		//отправка кода метки
-		while ((USART2->ISR & USART_ISR_TXE) == 0)
+		begin:
+		while ((USART2->ISR & USART_ISR_RXNE) == 0);
+		if(USART2->RDR == 0xf7)
 		{
-			if(USART2->RDR == 0xf7)
-			{
-				//считывание радиометки
-				while ((USART2->ISR & USART_ISR_TXE)==0);
-				USART2->TDR = 0xe4;
-				//отправка кода метки
-			}
-			if(USART2->RDR == 0xf8)
-				ready_state();
+			//считывание радиометки
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xe4;
+			//отправка кода метки
+			goto begin;
 		}
-
+		if(USART2->RDR == 0xf8)
+			ready_state();
 	}
 	if(analog_errors != 0)
 	{
@@ -310,7 +313,7 @@ void input_generation_parameters_state()
 	begin:
 	TIM3->CCR2 = status_word[10];
 	TIM3->CCR3 = status_word[11];
-	while ((USART2->ISR & USART_ISR_TXE) == 0)
+	while ((USART2->ISR & USART_ISR_RXNE) == 0)
 	{
 		analog_emergency_situations_check();
 		if(analog_errors != 0)
@@ -333,7 +336,7 @@ void input_generation_parameters_state()
 	}
 	if(USART2->RDR == 0xf3)
 	{
-		for(int i = 0; i < 16; ++i)
+		for(int i = 0; i < 27; ++i)
 			read_value(&generation_parametrs[i],2);
 		goto begin;
 	}
@@ -362,14 +365,38 @@ void chanel_1_generation()
 	if(generation_parametrs[25] < generation_parametrs[3] && generation_parametrs[25] > generation_parametrs[2])
 		voltage_1 = generation_parametrs[6] + (generation_parametrs[25] - generation_parametrs[2]) * (generation_parametrs[7] - generation_parametrs[6]) / (generation_parametrs[3] - generation_parametrs[2]);
 	flags |= 0x4;
-	while(GPIOB->BSRR &= 0x8 == 0)
+	GPIOB->BSRR |= GPIO_BSRR_BS_14;
+	GPIOB->BSRR |= GPIO_BSRR_BS_15;
+	while(GPIOB->BSRR &= 0x8 == 0  && USART2->RDR != 0xfa)
 	{
 		DAC->DHR12R1 = voltage_1;
 		GPIOB->BSRR |= GPIO_BSRR_BS_12;
+		analog_emergency_situations_check();
+		if(analog_errors != 0)
+		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xe6;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x1e;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = analog_errors;
+		}
+		if(digital_errors != 0)
+		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xe6;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x2e;
+			transmit_value(&digital_errors,2);
+		}
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xe7;
 	}
 	GPIOB->BSRR |= GPIO_BSRR_BR_12;
 	DAC->DHR12R1 = 0;
 	flags &= ~ 0x4;
+	GPIOB->BSRR |= GPIO_BSRR_BR_14;
+	GPIOB->BSRR |= GPIO_BSRR_BR_15;
 }
 
 void chanel_2_generation()
@@ -382,10 +409,30 @@ void chanel_2_generation()
 	if(generation_parametrs[26] < generation_parametrs[11] && generation_parametrs[26] > generation_parametrs[10])
 		voltage_2 = generation_parametrs[14] + (generation_parametrs[25] - generation_parametrs[10]) * (generation_parametrs[15] - generation_parametrs[14]) / (generation_parametrs[11] - generation_parametrs[10]);
 	flags |= 0x8;
-	while(GPIOB->BSRR &= 0x10 == 0)
+	while(GPIOB->BSRR &= 0x10 == 0 && USART2->RDR != 0xfa)
 	{
 		DAC->DHR12R2 = voltage_2;
 		GPIOB->BSRR |= GPIO_BSRR_BS_13;
+		analog_emergency_situations_check();
+		if(analog_errors != 0)
+		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xe6;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x1e;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = analog_errors;
+		}
+		if(digital_errors != 0)
+		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xe6;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x2e;
+			transmit_value(&digital_errors,2);
+		}
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xe8;
 	}
 	GPIOB->BSRR |= GPIO_BSRR_BR_13;
 	DAC->DHR12R2 = 0;
@@ -463,5 +510,6 @@ int main(void)
 	connection_check();
 	getting_status_word();
 	send_ll_state();
-	input_generation_parameters_state();
+	while(1)
+		input_generation_parameters_state();
 }
