@@ -29,7 +29,6 @@ void init_all()
 	NVIC_EnableIRQ(EXTI1_IRQn);
 	NVIC_EnableIRQ(EXTI2_IRQn);
 	NVIC_EnableIRQ(EXTI4_IRQn);
-	NVIC_EnableIRQ(EXTI4_IRQn);
 	NVIC_EnableIRQ(EXTI9_5_IRQn);
 	NVIC_EnableIRQ(EXTI15_10_IRQn);
 	__enable_irq();
@@ -58,7 +57,7 @@ void init_all()
 	DMA2_Stream0->CR  |= DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 | DMA_SxCR_MINC | DMA_SxCR_CIRC;
 	DMA2_Stream0->PAR = (uint32_t)&ADC1->DR;
 	DMA2_Stream0->M0AR = (uint32_t)&adc_buffer;
-	DMA2_Stream0->NDTR = 60;
+	DMA2_Stream0->NDTR = 70;
    	DMA2_Stream0->CR |= DMA_SxCR_EN;
 
 	GPIOA->MODER |= GPIO_MODER_MODER2_1 | GPIO_MODER_MODER3_1;
@@ -123,13 +122,10 @@ void read_value(void *ad, int length)
 
 void processing_adc_value()
 {
+	int max_adc_value[6], min_adc_value[6];
 	for(int i = 0; i < 6; ++i)
 		adc_value[i] = 0;
 	ADC1->CR2 |= ADC_CR2_SWSTART;
-	for(int i = 0; i <= 1000; i++);
-	for(int i = 0; i < 60; ++i)
-		adc_buffer[i] &= 0xfff8;
-	int max_adc_value[6], min_adc_value[6];
 	for(int i = 1; i < 6; ++i)
 		max_adc_value[i] = min_adc_value[i] = adc_buffer[i];
 	for(int i = 1; i < 6; ++i)
@@ -150,7 +146,7 @@ void processing_adc_value()
 	{
 		for(int i = 0; i < 6; ++i)
 			for(int j = 0; j < 10; ++j)
-				adc_value[i] += adc_buffer[i+j*6]/10;
+				adc_value[i] += adc_buffer[i+j*6]/8 - max_adc_value[i]/8 - min_adc_value[i]/8;
 	}
 	for(int i = 0; i < 6; ++i)
 		adc_value[i] &= 0xfff8;
@@ -161,11 +157,11 @@ void analog_emergency_situations_check()
 	processing_adc_value();
 	if(adc_value[0] >= 2000)
 		analog_errors |= 0x1;
-	if(adc_value[1] >= 2000)
-		analog_errors |= 0x2;
+//	if(adc_value[1] >= 2000)
+//		analog_errors |= 0x2;
 	if(adc_value[2] >= 2000)
 		analog_errors |= 0x4;
-	if(adc_value[3] >= 2000)
+/*	if(adc_value[3] >= 2000)
 		analog_errors |= 0x8;
 	if(adc_value[4] >= 1500)
 	{
@@ -175,7 +171,7 @@ void analog_emergency_situations_check()
 		if(adc_value[4] <= 1700)
 			analog_errors &= ~0x10;
 	}
-	if(adc_value[5] >= 2000)
+*/	if(adc_value[5] >= 2000)
 	{
 		GPIOA->BSRR |= GPIO_BSRR_BS_8;
 		if(adc_value[5] >= 2000)
@@ -225,6 +221,7 @@ void send_ll_state()
 		USART2->TDR = 0x1e;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = analog_errors;
+		analog_errors = 0;
 	}
 	if(digital_errors != 0)
 	{
@@ -233,6 +230,7 @@ void send_ll_state()
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0x2e;
 		transmit_value(&digital_errors,2);
+		digital_errors = 0;
 	}
 }
 
@@ -258,7 +256,7 @@ void ready_state()
 			USART2->TDR = 0x2e;
 			transmit_value(&digital_errors,2);
 		}
-		flags |= 0x1;
+		flags |= 0x4;
 		GPIOB->BSRR |= GPIO_BSRR_BS_14;
 	}
 }
@@ -324,6 +322,7 @@ void input_generation_parameters_state()
 			USART2->TDR = 0x1e;
 			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = analog_errors;
+			analog_errors = 0;
 		}
 		if(digital_errors != 0)
 		{
@@ -332,6 +331,7 @@ void input_generation_parameters_state()
 			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = 0x2e;
 			transmit_value(&digital_errors,2);
+			digital_errors = 0;
 		}
 	}
 	if(USART2->RDR == 0xf3)
@@ -441,14 +441,14 @@ void chanel_2_generation()
 
 void EXTI0_IRQHandler()
 {
-	if((flags &= 0x10) == 0)
+	if((flags &= 0x1) == 0)
 		digital_errors |= 0x1;
 	EXTI->PR |= EXTI_PR_PR0;
 }
 
 void EXTI1_IRQHandler()
 {
-	if((flags &= 0x20) == 0)
+	if((flags &= 0x2) == 0)
 		digital_errors |= 0x2;
 	EXTI->PR |= EXTI_PR_PR1;
 }
@@ -461,8 +461,8 @@ void EXTI2_IRQHandler()
 
 void EXTI4_IRQHandler()
 {
-	if(flags &= 0x1 == 0)
-		digital_errors |= 0x8;
+	if((flags &= 0x4) == 0)
+	digital_errors |= 0x8;
 	else
 		chanel_1_generation();
 	EXTI->PR |= EXTI_PR_PR4;
@@ -472,7 +472,7 @@ void EXTI9_5_IRQHandler()
 {
 	if (EXTI->PR & (1<<5))
 	{
-		if(flags &= 0x1 == 0)
+		if((flags &= 0x4) == 0)
 			digital_errors |= 0x10;
 		else
 			chanel_1_generation();
@@ -490,7 +490,7 @@ void EXTI9_5_IRQHandler()
 	}
 }
 
-void EXTI15_10_IRQHandler()
+/*void EXTI15_10_IRQHandler()
 {
 	if (EXTI->PR & (1<<10))
 	{
@@ -502,14 +502,39 @@ void EXTI15_10_IRQHandler()
 		digital_errors |= 0x100;
 		EXTI->PR |= EXTI_PR_PR11;
 	}
-}
+}*/
 
 int main(void)
 {
 	init_all();
-	connection_check();
+	while(1)
+	{
+		ADC1->CR2 |= ADC_CR2_SWSTART;
+		for(int i = 0; i < 10; i++)
+		{
+			for(int i = 0; i < 6; i++)
+				transmit_value(&adc_buffer[i],2);
+			while((USART2->ISR & USART_ISR_TXE) == 0);
+			USART2->TDR = 0x11;
+			while((USART2->ISR & USART_ISR_TXE) == 0);
+			USART2->TDR = 0x11;
+			while((USART2->ISR & USART_ISR_TXE) == 0);
+			USART2->TDR = 0x11;
+			while((USART2->ISR & USART_ISR_TXE) == 0);
+			USART2->TDR = 0x11;
+		}
+		for(int i = 0; i < 32; i++)
+		{
+			while((USART2->ISR & USART_ISR_TXE) == 0);
+			USART2->TDR = 0x11;
+		}
+		for(int i = 0; i < 3000000; i++);
+	}
+/*
+  	connection_check();
 	getting_status_word();
 	send_ll_state();
 	while(1)
 		input_generation_parameters_state();
+*/
 }
