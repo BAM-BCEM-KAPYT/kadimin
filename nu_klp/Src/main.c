@@ -462,7 +462,7 @@ void EXTI2_IRQHandler()
 void EXTI4_IRQHandler()
 {
 	if((flags &= 0x4) == 0)
-	digital_errors |= 0x8;
+		digital_errors |= 0x8;
 	else
 		chanel_1_generation();
 	EXTI->PR |= EXTI_PR_PR4;
