@@ -19,7 +19,7 @@ void init_all()
 	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN | RCC_APB2ENR_ADC1EN;
 
 	SysTick_Config(1600000);
-/*
+
 	SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI0_PB | SYSCFG_EXTICR1_EXTI1_PB | SYSCFG_EXTICR1_EXTI2_PB;
 	SYSCFG->EXTICR[1] |= SYSCFG_EXTICR2_EXTI4_PB | SYSCFG_EXTICR2_EXTI5_PB;
 	SYSCFG->EXTICR[2] |= SYSCFG_EXTICR3_EXTI8_PB | SYSCFG_EXTICR3_EXTI9_PB | SYSCFG_EXTICR3_EXTI10_PB | SYSCFG_EXTICR3_EXTI11_PB;
@@ -32,7 +32,7 @@ void init_all()
 	NVIC_EnableIRQ(EXTI9_5_IRQn);
 	NVIC_EnableIRQ(EXTI15_10_IRQn);
 	__enable_irq();
-*/
+
 	GPIOA->MODER |= GPIO_MODER_MODER8_0;
 	GPIOB->MODER |= GPIO_MODER_MODER12_0 | GPIO_MODER_MODER13_0 | GPIO_MODER_MODER14_0 | GPIO_MODER_MODER15_0;
 	GPIOC->MODER |= GPIO_MODER_MODER7_1 | GPIO_MODER_MODER8_1 | GPIO_MODER_MODER9_0;
@@ -323,7 +323,7 @@ void input_generation_parameters_state()
 			USART2->TDR = analog_errors;
 			analog_errors = 0;
 		}
-/*		if(digital_errors != 0)
+		if(digital_errors != 0)
 		{
 			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = 0xe2;
@@ -332,7 +332,7 @@ void input_generation_parameters_state()
 			transmit_value(&digital_errors,2);
 			digital_errors = 0;
 		}
-*/		for(int i = 0; i <= 100000; ++i);
+		for(int i = 0; i <= 100000; ++i);
 	}
 	if(USART2->RDR == 0xf3)
 	{
@@ -439,7 +439,6 @@ void chanel_2_generation()
 	flags &= ~ 0x8;
 }
 
-/*
 void EXTI0_IRQHandler()
 {
 	if((flags &= 0x1) == 0)
@@ -504,7 +503,6 @@ void EXTI15_10_IRQHandler()
 		EXTI->PR |= EXTI_PR_PR11;
 	}
 }
-*/
 
 int main(void)
 {
