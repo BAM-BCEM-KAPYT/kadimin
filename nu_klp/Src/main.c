@@ -522,3 +522,4 @@ int main(void)
 		input_generation_parameters_state();
 	}
 }
+
