@@ -277,6 +277,7 @@ void transition_to_ready()
 		//отправка кода метки
 		begin:
 		while ((USART2->ISR & USART_ISR_RXNE) == 0);
+		GPIOB->BSRR |= GPIO_BSRR_BS_12;
 		if(USART2->RDR == 0xf7)
 		{
 			//считывание радиометки
