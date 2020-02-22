@@ -56,15 +56,10 @@ void init_all()
 	DMA2_Stream0->CR &= ~DMA_SxCR_EN;
 	DMA2_Stream0->CR  |= DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 | DMA_SxCR_MINC | DMA_SxCR_CIRC;
 	DMA2_Stream0->PAR = (uint32_t)&ADC1->DR;
-
 //	DMA2_Stream0->M0AR = (uint32_t)&adc_buffer;
 //	DMA2_Stream0->NDTR = 70;
 	DMA2_Stream0->M0AR = (uint32_t)&adc_value;
 	DMA2_Stream0->NDTR = 7;
-
-	DMA2_Stream0->M0AR = (uint32_t)&adc_buffer;
-	DMA2_Stream0->NDTR = 70;
-
    	DMA2_Stream0->CR |= DMA_SxCR_EN;
 
 	GPIOA->MODER |= GPIO_MODER_MODER2_1 | GPIO_MODER_MODER3_1;
@@ -177,14 +172,14 @@ void analog_emergency_situations_check()
 	}
 */	if(adc_value[5] >= 2000)
 	{
-		GPIOA->BSRR |= GPIO_BSRR_BS_8;
+		GPIOC->BSRR |= GPIO_BSRR_BS_9;
 		if(adc_value[5] >= 3000)
 			analog_errors |= 0x10;
 		if(adc_value[5] <= 2500)
 			analog_errors &= ~0x10;
 	}
 	if(/*adc_value[4] <= 1300 && */adc_value[5] <= 1300)
-		GPIOA->BSRR |= GPIO_BSRR_BR_8;
+		GPIOC->BSRR |= GPIO_BSRR_BR_9;
 }
 
 void connection_check()
@@ -251,6 +246,7 @@ void ready_state()
 			USART2->TDR = 0x1e;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = analog_errors;
+			analog_errors = 0;
 		}
 		if(digital_errors != 0)
 		{
@@ -259,6 +255,7 @@ void ready_state()
 			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = 0x2e;
 			transmit_value(&digital_errors,2);
+			digital_errors = 0;
 		}
 		flags |= 0x4;
 		GPIOB->BSRR |= GPIO_BSRR_BS_14;
@@ -299,6 +296,7 @@ void transition_to_ready()
 		USART2->TDR = 0x1e;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = analog_errors;
+		analog_errors = 0;
 	}
 	if(digital_errors != 0)
 	{
@@ -307,6 +305,7 @@ void transition_to_ready()
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0x2e;
 		transmit_value(&digital_errors,2);
+		digital_errors = 0;
 	}
 }
 
@@ -446,6 +445,7 @@ void chanel_2_generation()
 
 void EXTI0_IRQHandler()
 {
+	for(int i = 0; i <= 1000; ++i);
 	if((flags &= 0x1) == 0)
 		digital_errors |= 0x1;
 	EXTI->PR |= EXTI_PR_PR0;
@@ -453,6 +453,7 @@ void EXTI0_IRQHandler()
 
 void EXTI1_IRQHandler()
 {
+	for(int i = 0; i <= 1000; ++i);
 	if((flags &= 0x2) == 0)
 		digital_errors |= 0x2;
 	EXTI->PR |= EXTI_PR_PR1;
@@ -460,12 +461,14 @@ void EXTI1_IRQHandler()
 
 void EXTI2_IRQHandler()
 {
+	for(int i = 0; i <= 1000; ++i);
 	digital_errors |= 0x4;
 	EXTI->PR |= EXTI_PR_PR2;
 }
 
 void EXTI4_IRQHandler()
 {
+	for(int i = 0; i <= 1000; ++i);
 	if((flags &= 0x4) == 0)
 		digital_errors |= 0x8;
 	else
@@ -475,6 +478,7 @@ void EXTI4_IRQHandler()
 
 void EXTI9_5_IRQHandler()
 {
+	for(int i = 0; i <= 1000; ++i);
 	if (EXTI->PR & (1<<5))
 	{
 		if((flags &= 0x4) == 0)
@@ -495,8 +499,9 @@ void EXTI9_5_IRQHandler()
 	}
 }
 
-/*void EXTI15_10_IRQHandler()
+void EXTI15_10_IRQHandler()
 {
+	for(int i = 0; i <= 1000; ++i);
 	if (EXTI->PR & (1<<10))
 	{
 		digital_errors |= 0x80;
@@ -507,34 +512,13 @@ void EXTI9_5_IRQHandler()
 		digital_errors |= 0x100;
 		EXTI->PR |= EXTI_PR_PR11;
 	}
-}*/
+}
 
 int main(void)
 {
 	init_all();
 	while(1)
-	{
-		ADC1->CR2 |= ADC_CR2_SWSTART;
-		for(int i = 0; i < 10; i++)
-		{
-			for(int i = 0; i < 6; i++)
-				transmit_value(&adc_buffer[i],2);
-			while((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0x11;
-			while((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0x11;
-			while((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0x11;
-			while((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0x11;
-		}
-		for(int i = 0; i < 32; i++)
-		{
-			while((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0x11;
-		}
-		for(int i = 0; i < 3000000; i++);
-	}
+		transition_to_ready();
 /*
   	connection_check();
 	getting_status_word();
@@ -545,4 +529,3 @@ int main(void)
 	}
 */
 }
-
