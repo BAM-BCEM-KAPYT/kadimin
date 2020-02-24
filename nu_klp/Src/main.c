@@ -81,6 +81,8 @@ void SysTick_Handler(void)
 		++emitter_1_timer;
 	if(flags &= 0x10 != 0)
 		++emitter_2_timer;
+	if(flags &= 0x4 != 0)
+		++timer_ready_state;
 }
 
 void transmit_value(void *ad, int length)
@@ -168,9 +170,13 @@ void analog_emergency_situations_check()
 void connection_check()
 {
 	while((USART2->ISR & USART_ISR_RXNE) == 0);
+	while(USART2->RDR != 0x04);
+	while((USART2->ISR & USART_ISR_RXNE) == 0);
 	while(USART2->RDR != 0xf0);
 	while((USART2->ISR & USART_ISR_RXNE) == 0);
 	while(USART2->RDR != 0xf1);
+	while ((USART2->ISR & USART_ISR_TXE)==0);
+	USART2->TDR = 0x05;
 	while ((USART2->ISR & USART_ISR_TXE)==0);
 	USART2->TDR = 0xe0;
 	while ((USART2->ISR & USART_ISR_TXE)==0);
@@ -179,6 +185,8 @@ void connection_check()
 
 void getting_status_word()
 {
+	while ((USART2->ISR & USART_ISR_RXNE )==0);
+	while(USART2->RDR != 0x04);
 	while ((USART2->ISR & USART_ISR_RXNE )==0);
 	while(USART2->RDR != 0xf1);
 	for(int i = 0; i < 14; ++i)
@@ -191,12 +199,16 @@ void send_ll_state()
 	if(analog_errors == 0 && digital_errors == 0)
 	{
 		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x05;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0xe1;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0x0e;
 	}
 	if(analog_errors != 0)
 	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x05;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0xe1;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
@@ -207,6 +219,8 @@ void send_ll_state()
 	}
 	if(digital_errors != 0)
 	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x05;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0xe1;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
@@ -218,11 +232,13 @@ void send_ll_state()
 
 void ready_state()
 {
-	while(timer_ready_state <= 14400 && USART2->RDR != 0xfa && USART2->RDR != 0xfb)
+	while(timer_ready_state <= 14400 && (flags &= 0x20) == 0)
 	{
 		analog_emergency_situations_check();
 		if(analog_errors != 0)
 		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x05;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = 0xe5;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
@@ -234,6 +250,8 @@ void ready_state()
 		if(digital_errors != 0)
 		{
 			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x05;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = 0xe5;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = 0x2e;
@@ -243,11 +261,23 @@ void ready_state()
 		for(int i = 0; i <= 100000; ++i);
 		flags |= 0x4;
 		GPIOB->BSRR |= GPIO_BSRR_BS_14;
+		if(USART2->RDR == 0x04)
+		{
+			while ((USART2->ISR & USART_ISR_RXNE )==0);
+			if(USART2->RDR == 0xfa || USART2->RDR == 0xfb)
+				flags |= 0x20;
+		}
 	}
+	timer_ready_state = 0;
+	flags &= ~0x4;
+	flags &= ~0x20;
+	GPIOB->BSRR |= GPIO_BSRR_BR_14;
 }
 
 void transition_to_ready()
 {
+	while ((USART2->ISR & USART_ISR_RXNE ) == 0);
+	while(USART2->RDR != 0x24);
 	while ((USART2->ISR & USART_ISR_RXNE ) == 0);
 	while(USART2->RDR != 0xf3);
 	for(int i = 0; i < 35; ++i)
@@ -257,23 +287,35 @@ void transition_to_ready()
 	{
 		//считывание радиометки
 		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x05;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0xe4;
 		//отправка кода метки
 		begin:
 		while ((USART2->ISR & USART_ISR_RXNE) == 0);
-		if(USART2->RDR == 0xf7)
+		if(USART2->RDR == 0x04)
 		{
-			//считывание радиометки
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0xe4;
-			//отправка кода метки
-			goto begin;
+			while ((USART2->ISR & USART_ISR_RXNE) == 0);
+			if(USART2->RDR == 0xf7)
+			{
+				//считывание радиометки
+				while ((USART2->ISR & USART_ISR_TXE)==0);
+				USART2->TDR = 0xe4;
+				//отправка кода метки
+				goto begin;
+			}
 		}
-		if(USART2->RDR == 0xf8)
-			ready_state();
+		if(USART2->RDR == 0x04)
+		{
+			while ((USART2->ISR & USART_ISR_RXNE) == 0);
+			if(USART2->RDR == 0xf8)
+				ready_state();
+		}
 	}
 	if(analog_errors != 0)
 	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x05;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0xe3;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
@@ -284,6 +326,8 @@ void transition_to_ready()
 	}
 	if(digital_errors != 0)
 	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x05;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
 		USART2->TDR = 0xe3;
 		while ((USART2->ISR & USART_ISR_TXE)==0);
@@ -303,6 +347,8 @@ void input_generation_parameters_state()
 		analog_emergency_situations_check();
 		if(analog_errors != 0)
 		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x05;
 			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = 0xe2;
 			while ((USART2->ISR & USART_ISR_TXE) == 0);
@@ -313,6 +359,8 @@ void input_generation_parameters_state()
 		}
 		if(digital_errors != 0)
 		{
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x05;
 			while ((USART2->ISR & USART_ISR_TXE) == 0);
 			USART2->TDR = 0xe2;
 			while ((USART2->ISR & USART_ISR_TXE) == 0);
@@ -322,22 +370,30 @@ void input_generation_parameters_state()
 		}
 		for(int i = 0; i <= 100000; ++i);
 	}
-	if(USART2->RDR == 0xf3)
+	if(USART2->RDR == 0x24)
 	{
-		for(int i = 0; i < 35; ++i)
-			read_value(&generation_parametrs[i],2);
-		goto begin;
+		while ((USART2->ISR & USART_ISR_RXNE) == 0);
+		if(USART2->RDR == 0xf3)
+		{
+			for(int i = 0; i < 35; ++i)
+				read_value(&generation_parametrs[i],2);
+			goto begin;
+		}
 	}
-	if(USART2->RDR == 0xf4)
+	if(USART2->RDR == 0x34)
 	{
-		while ((USART2->ISR & USART_ISR_RXNE ) == 0);
-		while(USART2->RDR != 0xf5);
-		for(int i = 0; i < 14; ++i)
-			read_value(&status_word[i],2);
-		goto begin;
+		while ((USART2->ISR & USART_ISR_RXNE) == 0);
+		if(USART2->RDR == 0xf4)
+		{
+			for(int i = 0; i < 14; ++i)
+				read_value(&status_word[i],2);
+			goto begin;
+		}
 	}
-	if(USART2->RDR == 0xf2)
+	if(USART2->RDR == 0x14)
 	{
+		while ((USART2->ISR & USART_ISR_RXNE) == 0);
+		if(USART2->RDR == 0xf2)
 		transition_to_ready();
 		goto begin;
 	}
@@ -503,15 +559,12 @@ void EXTI15_10_IRQHandler()
 int main(void)
 {
 	init_all();
-	while(1)
-		transition_to_ready();
-/*
-  	connection_check();
+	ready_state();
+ 	connection_check();
 	getting_status_word();
 	send_ll_state();
 	while(1)
 	{
 		input_generation_parameters_state();
 	}
-*/
 }
