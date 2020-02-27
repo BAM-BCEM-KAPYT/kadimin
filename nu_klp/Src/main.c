@@ -1,7 +1,8 @@
 #include"stm32f767xx.h"
 
-uint16_t status_word[14];
-uint16_t generation_parametrs[27];
+uint16_t status_word[38];
+uint16_t generation_parametrs[8];
+uint8_t duty_cycle = 0;
 uint16_t adc_buffer[60];
 uint16_t adc_value[6];
 uint8_t analog_errors = 0;
@@ -167,82 +168,21 @@ void analog_emergency_situations_check()
 		GPIOC->BSRR |= GPIO_BSRR_BR_9;
 }
 
-void connection_check()
-{
-	while((USART2->ISR & USART_ISR_RXNE) == 0);
-	while(USART2->RDR != 0x04);
-	while((USART2->ISR & USART_ISR_RXNE) == 0);
-	while(USART2->RDR != 0xf0);
-	while((USART2->ISR & USART_ISR_RXNE) == 0);
-	while(USART2->RDR != 0xf1);
-	while ((USART2->ISR & USART_ISR_TXE)==0);
-	USART2->TDR = 0x05;
-	while ((USART2->ISR & USART_ISR_TXE)==0);
-	USART2->TDR = 0xe0;
-	while ((USART2->ISR & USART_ISR_TXE)==0);
-	USART2->TDR = 0xf1;
-}
-
-void getting_status_word()
-{
-	while ((USART2->ISR & USART_ISR_RXNE )==0);
-	while(USART2->RDR != 0x04);
-	while ((USART2->ISR & USART_ISR_RXNE )==0);
-	while(USART2->RDR != 0xf1);
-	for(int i = 0; i < 14; ++i)
-		read_value(&status_word[i],2);
-}
-
-void send_ll_state()
+void errors_check()
 {
 	analog_emergency_situations_check();
-	if(analog_errors == 0 && digital_errors == 0)
+	if(analog_errors != 0 || digital_errors != 0)
 	{
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x05;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe1;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x0e;
-	}
-	if(analog_errors != 0)
-	{
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x05;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe1;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x1e;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = analog_errors;
-		analog_errors = 0;
-	}
-	if(digital_errors != 0)
-	{
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x05;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe1;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x2e;
-		transmit_value(&digital_errors,2);
-		digital_errors = 0;
-	}
-}
-
-void ready_state()
-{
-	while(timer_ready_state <= 14400 && (flags &= 0x20) == 0)
-	{
-		analog_emergency_situations_check();
+		DAC->DHR12R1 = 0;
+		GPIOB->BSRR |= GPIO_BSRR_BR_12;
+		DAC->DHR12R2 = 0;
+		GPIOB->BSRR |= GPIO_BSRR_BR_13;
 		if(analog_errors != 0)
 		{
 			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = 0x05;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0xe5;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0x1e;
+			USART2->TDR = 0xe1;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = analog_errors;
 			analog_errors = 0;
@@ -252,19 +192,60 @@ void ready_state()
 			while ((USART2->ISR & USART_ISR_TXE)==0);
 			USART2->TDR = 0x05;
 			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0xe5;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0x2e;
+			USART2->TDR = 0xe2;
 			transmit_value(&digital_errors,2);
 			digital_errors = 0;
 		}
+		begin:
+		while((USART2->ISR & USART_ISR_RXNE) == 0);
+		while(1)
+		{
+			if(USART2->RDR == 0x04)
+			{
+				while((USART2->ISR & USART_ISR_RXNE) == 0);
+				if(USART2->RDR == 0xee)
+					break;
+				else
+					goto begin;
+			}
+		}
+	}
+}
+
+void connection_check()
+{
+	while((USART2->ISR & USART_ISR_RXNE) == 0);
+	while(USART2->RDR != 0x04);
+	while((USART2->ISR & USART_ISR_RXNE) == 0);
+	while(USART2->RDR != 0xf0);
+	while ((USART2->ISR & USART_ISR_TXE)==0);
+	USART2->TDR = 0x05;
+	while ((USART2->ISR & USART_ISR_TXE)==0);
+	USART2->TDR = 0xe0;
+}
+
+void getting_status_word()
+{
+	while ((USART2->ISR & USART_ISR_RXNE )==0);
+	while(USART2->RDR != 0x04);
+	while ((USART2->ISR & USART_ISR_RXNE )==0);
+	while(USART2->RDR != 0xf1);
+	for(int i = 0; i < 38; ++i)
+		read_value(&status_word[i],2);
+}
+
+void ready_state()
+{
+	while(timer_ready_state <= 14400 && (flags &= 0x20) == 0)
+	{
+		errors_check();
 		for(int i = 0; i <= 100000; ++i);
 		flags |= 0x4;
 		GPIOB->BSRR |= GPIO_BSRR_BS_14;
 		if(USART2->RDR == 0x04)
 		{
 			while ((USART2->ISR & USART_ISR_RXNE )==0);
-			if(USART2->RDR == 0xfa || USART2->RDR == 0xfb)
+			if(USART2->RDR == 0xf6 || USART2->RDR == 0xf8)
 				flags |= 0x20;
 		}
 	}
@@ -276,126 +257,94 @@ void ready_state()
 
 void transition_to_ready()
 {
-	while ((USART2->ISR & USART_ISR_RXNE ) == 0);
-	while(USART2->RDR != 0x24);
-	while ((USART2->ISR & USART_ISR_RXNE ) == 0);
-	while(USART2->RDR != 0xf3);
-	for(int i = 0; i < 35; ++i)
-		read_value(&generation_parametrs[i],2);
-	analog_emergency_situations_check();
-	if(analog_errors == 0 && digital_errors == 0)
+	errors_check();
+	//считывание радиометки
+	while ((USART2->ISR & USART_ISR_TXE)==0);
+	USART2->TDR = 0x05;
+	while ((USART2->ISR & USART_ISR_TXE)==0);
+	USART2->TDR = 0xe4;
+	//отправка кода метки
+	begin:
+	while ((USART2->ISR & USART_ISR_RXNE) == 0);
+	if(USART2->RDR == 0x04)
 	{
-		//считывание радиометки
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x05;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe4;
-		//отправка кода метки
-		begin:
 		while ((USART2->ISR & USART_ISR_RXNE) == 0);
-		if(USART2->RDR == 0x04)
+		if(USART2->RDR == 0xf4)
 		{
-			while ((USART2->ISR & USART_ISR_RXNE) == 0);
-			if(USART2->RDR == 0xf7)
-			{
-				//считывание радиометки
-				while ((USART2->ISR & USART_ISR_TXE)==0);
-				USART2->TDR = 0xe4;
-				//отправка кода метки
-				goto begin;
-			}
-		}
-		if(USART2->RDR == 0x04)
-		{
-			while ((USART2->ISR & USART_ISR_RXNE) == 0);
-			if(USART2->RDR == 0xf8)
-				ready_state();
+			//считывание радиометки
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0x05;
+			while ((USART2->ISR & USART_ISR_TXE)==0);
+			USART2->TDR = 0xe4;
+			//отправка кода метки
+			goto begin;
 		}
 	}
-	if(analog_errors != 0)
+	if(USART2->RDR == 0x04)
 	{
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x05;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe3;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x1e;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = analog_errors;
-		analog_errors = 0;
-	}
-	if(digital_errors != 0)
-	{
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x05;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe3;
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0x2e;
-		transmit_value(&digital_errors,2);
-		digital_errors = 0;
+		while ((USART2->ISR & USART_ISR_RXNE) == 0);
+		if(USART2->RDR == 0xf5)
+			ready_state();
 	}
 }
 
 void input_generation_parameters_state()
 {
 	begin:
-	TIM3->CCR2 = status_word[10];
-	TIM3->CCR3 = status_word[11];
-	while ((USART2->ISR & USART_ISR_RXNE) == 0)
-	{
-		analog_emergency_situations_check();
-		if(analog_errors != 0)
-		{
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0x05;
-			while ((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0xe2;
-			while ((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0x1e;
-			while ((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = analog_errors;
-			analog_errors = 0;
-		}
-		if(digital_errors != 0)
-		{
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0x05;
-			while ((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0xe2;
-			while ((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0x2e;
-			transmit_value(&digital_errors,2);
-			digital_errors = 0;
-		}
-		for(int i = 0; i <= 100000; ++i);
-	}
-	if(USART2->RDR == 0x24)
-	{
-		while ((USART2->ISR & USART_ISR_RXNE) == 0);
-		if(USART2->RDR == 0xf3)
-		{
-			for(int i = 0; i < 35; ++i)
-				read_value(&generation_parametrs[i],2);
-			goto begin;
-		}
-	}
-	if(USART2->RDR == 0x34)
-	{
-		while ((USART2->ISR & USART_ISR_RXNE) == 0);
-		if(USART2->RDR == 0xf4)
-		{
-			for(int i = 0; i < 14; ++i)
-				read_value(&status_word[i],2);
-			goto begin;
-		}
-	}
-	if(USART2->RDR == 0x14)
+	while((USART2->ISR & USART_ISR_RXNE) == 0)
+		errors_check();
+	GPIOA->BSRR |= GPIO_BSRR_BS_8;
+	if(USART2->RDR == 0x04)
 	{
 		while ((USART2->ISR & USART_ISR_RXNE) == 0);
 		if(USART2->RDR == 0xf2)
-		transition_to_ready();
-		goto begin;
+		{
+			for(int i = 0; i < 8; ++i)
+				read_value(&generation_parametrs[i],2);
+			GPIOB->BSRR |= GPIO_BSRR_BS_12;
+			transition_to_ready();
+			goto begin;
+		}
+		if(USART2->RDR == 0xf1)
+		{
+			for(int i = 0; i < 38; ++i)
+				read_value(&status_word[i],2);
+			goto begin;
+		}
+		if(USART2->RDR == 0xf3)
+		{
+			while((USART2->ISR & USART_ISR_RXNE) == 0);
+			duty_cycle = USART2->RDR;
+			switch(duty_cycle)
+			{
+				case 1:
+				{
+					TIM3->CCR2 = 0;
+					TIM3->CCR3 = 0;
+					break;
+				}
+				case 2:
+				{
+					TIM3->CCR2 = 50;
+					TIM3->CCR3 = 50;
+				}
+				case 4:
+				{
+					TIM3->CCR2 = 100;
+					TIM3->CCR3 = 100;
+				}
+				case 8:
+				{
+					TIM3->CCR2 = 150;
+					TIM3->CCR3 = 150;
+				}
+				case 16:
+				{
+					TIM3->CCR2 = 150;
+					TIM3->CCR3 = 150;
+				}
+			}
+		}
 	}
 }
 
@@ -559,10 +508,8 @@ void EXTI15_10_IRQHandler()
 int main(void)
 {
 	init_all();
-	ready_state();
- 	connection_check();
-	getting_status_word();
-	send_ll_state();
+// 	connection_check();
+//	getting_status_word();
 	while(1)
 	{
 		input_generation_parameters_state();
