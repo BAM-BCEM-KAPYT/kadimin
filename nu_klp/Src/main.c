@@ -7,10 +7,11 @@ uint16_t adc_buffer[60];
 uint16_t adc_value[6];
 uint8_t analog_errors = 0;
 uint16_t digital_errors = 0;
-uint8_t flags = 0;
+uint16_t flags = 0;
 uint16_t timer_ready_state = 0;
 uint32_t emitter_1_timer = 0;
 uint32_t emitter_2_timer = 0;
+uint8_t indicator_blinking = 0;
 
 void init_all()
 {
@@ -78,12 +79,29 @@ void init_all()
 
 void SysTick_Handler(void)
 {
-	if(flags &= 0x8 != 0)
+	if((flags & 0x8) != 0)
 		++emitter_1_timer;
-	if(flags &= 0x10 != 0)
+	if((flags & 0x10) != 0)
 		++emitter_2_timer;
-	if(flags &= 0x4 != 0)
+	if((flags & 0x4) != 0)
 		++timer_ready_state;
+	if((flags & 0x40) != 0)
+	{
+		++indicator_blinking;
+		if(indicator_blinking >= 5 && (flags & 0x80) == 0)
+		{
+			GPIOB->BSRR |= GPIO_BSRR_BS_14;
+			flags |= 0x80;
+			indicator_blinking = 0;
+		}
+		if(indicator_blinking >= 5 && (flags & 0x80) != 0)
+		{
+			GPIOB->BSRR |= GPIO_BSRR_BR_14;
+			flags &= ~0x80;
+			indicator_blinking = 0;
+		}
+	}
+
 }
 
 void transmit_value(void *ad, int length)
@@ -173,10 +191,18 @@ void errors_check()
 	analog_emergency_situations_check();
 	if(analog_errors != 0 || digital_errors != 0)
 	{
-		DAC->DHR12R1 = 0;
+		GPIOB->BSRR |= GPIO_BSRR_BS_15;
 		GPIOB->BSRR |= GPIO_BSRR_BR_12;
-		DAC->DHR12R2 = 0;
 		GPIOB->BSRR |= GPIO_BSRR_BR_13;
+		GPIOB->BSRR |= GPIO_BSRR_BR_14;
+		DAC->DHR12R1 = 0;
+		DAC->DHR12R2 = 0;
+		flags &= ~0x4;
+		flags &= ~0x20;
+		flags &= ~0x40;
+		flags &= ~0x80;
+		TIM3->CCR2 = 0;
+		TIM3->CCR3 = 0;
 		if(analog_errors != 0)
 		{
 			while ((USART2->ISR & USART_ISR_TXE)==0);
@@ -236,12 +262,11 @@ void getting_status_word()
 
 void ready_state()
 {
-	while(timer_ready_state <= 14400 && (flags &= 0x20) == 0)
+	while(timer_ready_state <= 36000 && (flags &= 0x20) == 0)
 	{
 		errors_check();
 		for(int i = 0; i <= 100000; ++i);
 		flags |= 0x4;
-		GPIOB->BSRR |= GPIO_BSRR_BS_14;
 		if(USART2->RDR == 0x04)
 		{
 			while ((USART2->ISR & USART_ISR_RXNE )==0);
@@ -252,12 +277,14 @@ void ready_state()
 	timer_ready_state = 0;
 	flags &= ~0x4;
 	flags &= ~0x20;
-	GPIOB->BSRR |= GPIO_BSRR_BR_14;
+	flags &= ~0x40;
+	flags &= ~0x80;
 }
 
 void transition_to_ready()
 {
 	errors_check();
+	flags |= 0x40;
 	//считывание радиометки
 	while ((USART2->ISR & USART_ISR_TXE)==0);
 	USART2->TDR = 0x05;
@@ -279,13 +306,10 @@ void transition_to_ready()
 			//отправка кода метки
 			goto begin;
 		}
-	}
-	if(USART2->RDR == 0x04)
-	{
-		while ((USART2->ISR & USART_ISR_RXNE) == 0);
 		if(USART2->RDR == 0xf5)
 			ready_state();
 	}
+
 }
 
 void input_generation_parameters_state()
@@ -293,7 +317,6 @@ void input_generation_parameters_state()
 	begin:
 	while((USART2->ISR & USART_ISR_RXNE) == 0)
 		errors_check();
-	GPIOA->BSRR |= GPIO_BSRR_BS_8;
 	if(USART2->RDR == 0x04)
 	{
 		while ((USART2->ISR & USART_ISR_RXNE) == 0);
@@ -301,7 +324,6 @@ void input_generation_parameters_state()
 		{
 			for(int i = 0; i < 8; ++i)
 				read_value(&generation_parametrs[i],2);
-			GPIOB->BSRR |= GPIO_BSRR_BS_12;
 			transition_to_ready();
 			goto begin;
 		}
@@ -327,21 +349,25 @@ void input_generation_parameters_state()
 				{
 					TIM3->CCR2 = 50;
 					TIM3->CCR3 = 50;
+					break;
 				}
 				case 4:
 				{
 					TIM3->CCR2 = 100;
 					TIM3->CCR3 = 100;
+					break;
 				}
 				case 8:
 				{
 					TIM3->CCR2 = 150;
 					TIM3->CCR3 = 150;
+					break;
 				}
 				case 16:
 				{
-					TIM3->CCR2 = 150;
-					TIM3->CCR3 = 150;
+					TIM3->CCR2 = 200;
+					TIM3->CCR3 = 200;
+					break;
 				}
 			}
 		}
@@ -508,10 +534,12 @@ void EXTI15_10_IRQHandler()
 int main(void)
 {
 	init_all();
-// 	connection_check();
-//	getting_status_word();
+	ready_state();
+/* 	connection_check();
+	getting_status_word();
 	while(1)
 	{
 		input_generation_parameters_state();
 	}
+*/
 }
