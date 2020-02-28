@@ -7,7 +7,7 @@ uint16_t adc_buffer[60];
 uint16_t adc_value[6];
 uint8_t analog_errors = 0;
 uint16_t digital_errors = 0;
-uint16_t flags = 0;
+uint32_t flags = 0;
 uint16_t timer_ready_state = 0;
 uint32_t emitter_1_timer = 0;
 uint32_t emitter_2_timer = 0;
@@ -22,14 +22,12 @@ void init_all()
 	SysTick_Config(1600000);
 
 	SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI0_PB | SYSCFG_EXTICR1_EXTI1_PB | SYSCFG_EXTICR1_EXTI2_PB;
-	SYSCFG->EXTICR[1] |= SYSCFG_EXTICR2_EXTI4_PB | SYSCFG_EXTICR2_EXTI5_PB;
 	SYSCFG->EXTICR[2] |= SYSCFG_EXTICR3_EXTI8_PB | SYSCFG_EXTICR3_EXTI9_PB | SYSCFG_EXTICR3_EXTI10_PB | SYSCFG_EXTICR3_EXTI11_PB;
-	EXTI->IMR |= EXTI_IMR_MR0 | EXTI_IMR_MR1 | EXTI_IMR_MR2 | EXTI_IMR_MR4 | EXTI_IMR_MR5 | EXTI_IMR_MR8 | EXTI_IMR_MR9 | EXTI_IMR_MR10 | EXTI_IMR_MR11;
-	EXTI->RTSR |= EXTI_RTSR_TR0 | EXTI_RTSR_TR1 | EXTI_RTSR_TR2 | EXTI_RTSR_TR4 | EXTI_RTSR_TR5 | EXTI_RTSR_TR8 | EXTI_RTSR_TR9 | EXTI_RTSR_TR10 | EXTI_RTSR_TR11;
+	EXTI->IMR |= EXTI_IMR_MR0 | EXTI_IMR_MR1 | EXTI_IMR_MR2 | EXTI_IMR_MR8 | EXTI_IMR_MR9 | EXTI_IMR_MR10 | EXTI_IMR_MR11;
+	EXTI->RTSR |= EXTI_RTSR_TR0 | EXTI_RTSR_TR1 | EXTI_RTSR_TR2 | EXTI_RTSR_TR8 | EXTI_RTSR_TR9 | EXTI_RTSR_TR10 | EXTI_RTSR_TR11;
 	NVIC_EnableIRQ(EXTI0_IRQn);
 	NVIC_EnableIRQ(EXTI1_IRQn);
 	NVIC_EnableIRQ(EXTI2_IRQn);
-	NVIC_EnableIRQ(EXTI4_IRQn);
 	NVIC_EnableIRQ(EXTI9_5_IRQn);
 	NVIC_EnableIRQ(EXTI15_10_IRQn);
 	__enable_irq();
@@ -101,7 +99,6 @@ void SysTick_Handler(void)
 			indicator_blinking = 0;
 		}
 	}
-
 }
 
 void transmit_value(void *ad, int length)
@@ -176,19 +173,23 @@ void analog_emergency_situations_check()
 	}
 */	if(adc_value[5] >= 2000)
 	{
-		GPIOC->BSRR |= GPIO_BSRR_BS_9;
+		GPIOA->BSRR |= GPIO_BSRR_BS_8;
 		if(adc_value[5] >= 3000)
 			analog_errors |= 0x10;
 		if(adc_value[5] <= 2500)
 			analog_errors &= ~0x10;
 	}
 	if(/*adc_value[4] <= 1300 && */adc_value[5] <= 1300)
-		GPIOC->BSRR |= GPIO_BSRR_BR_9;
+		GPIOA->BSRR |= GPIO_BSRR_BR_8;
 }
 
 void errors_check()
 {
 	analog_emergency_situations_check();
+	if((GPIOB->IDR & 0x10) == 0 && (flags & 0x4) == 0)
+		digital_errors |= 0x8;
+//	if((GPIOB->IDR & 0x20) == 0 && (flags & 0x4) == 0)
+//		digital_errors |= 0x10;
 	if(analog_errors != 0 || digital_errors != 0)
 	{
 		GPIOB->BSRR |= GPIO_BSRR_BS_15;
@@ -260,13 +261,72 @@ void getting_status_word()
 		read_value(&status_word[i],2);
 }
 
-void ready_state()
+void chanel_1_generation()
 {
-	while(timer_ready_state <= 36000 && (flags &= 0x20) == 0)
+	int voltage_1 = 0;
+	if(generation_parametrs[25] < generation_parametrs[1] && generation_parametrs[25] > generation_parametrs[0])
+		voltage_1 = generation_parametrs[4] + (generation_parametrs[25] - generation_parametrs[0]) * (generation_parametrs[5] - generation_parametrs[4]) / (generation_parametrs[1] - generation_parametrs[0]);
+	if(generation_parametrs[25] < generation_parametrs[2] && generation_parametrs[25] > generation_parametrs[1])
+		voltage_1 = generation_parametrs[5] + (generation_parametrs[25] - generation_parametrs[1]) * (generation_parametrs[6] - generation_parametrs[5]) / (generation_parametrs[2] - generation_parametrs[1]);
+	if(generation_parametrs[25] < generation_parametrs[3] && generation_parametrs[25] > generation_parametrs[2])
+		voltage_1 = generation_parametrs[6] + (generation_parametrs[25] - generation_parametrs[2]) * (generation_parametrs[7] - generation_parametrs[6]) / (generation_parametrs[3] - generation_parametrs[2]);
+	DAC->DHR12R1 = voltage_1;
+	GPIOB->BSRR |= GPIO_BSRR_BS_14;
+	GPIOB->BSRR |= GPIO_BSRR_BS_15;
+	flags |= 0x8;
+	GPIOB->BSRR |= GPIO_BSRR_BS_12;
+	while((GPIOB->IDR & 0x10) == 0)
 	{
 		errors_check();
 		for(int i = 0; i <= 100000; ++i);
-		flags |= 0x4;
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xe7;
+	}
+	DAC->DHR12R1 = 0;
+	GPIOB->BSRR |= GPIO_BSRR_BR_12;
+	flags &= ~ 0x8;
+	GPIOB->BSRR |= GPIO_BSRR_BR_14;
+	GPIOB->BSRR |= GPIO_BSRR_BR_15;
+}
+
+void chanel_2_generation()
+{
+	int voltage_2 = 0;
+	if(generation_parametrs[26] < generation_parametrs[9] && generation_parametrs[26] > generation_parametrs[8])
+		voltage_2 = generation_parametrs[12] + (generation_parametrs[25] - generation_parametrs[8]) * (generation_parametrs[13] - generation_parametrs[12]) / (generation_parametrs[9] - generation_parametrs[8]);
+	if(generation_parametrs[26] < generation_parametrs[10] && generation_parametrs[26] > generation_parametrs[9])
+		voltage_2 = generation_parametrs[13] + (generation_parametrs[25] - generation_parametrs[9]) * (generation_parametrs[14] - generation_parametrs[13]) / (generation_parametrs[10] - generation_parametrs[9]);
+	if(generation_parametrs[26] < generation_parametrs[11] && generation_parametrs[26] > generation_parametrs[10])
+		voltage_2 = generation_parametrs[14] + (generation_parametrs[25] - generation_parametrs[10]) * (generation_parametrs[15] - generation_parametrs[14]) / (generation_parametrs[11] - generation_parametrs[10]);
+	DAC->DHR12R2 = voltage_2;
+	GPIOB->BSRR |= GPIO_BSRR_BS_14;
+	GPIOB->BSRR |= GPIO_BSRR_BS_15;
+	flags |= 0x10;
+	GPIOB->BSRR |= GPIO_BSRR_BS_13;
+	while((GPIOB->IDR & 0x20) == 0)
+	{
+		errors_check();
+		for(int i = 0; i <= 100000; ++i);
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0xe8;
+	}
+	DAC->DHR12R2 = 0;
+	GPIOB->BSRR |= GPIO_BSRR_BR_13;
+	flags &= ~ 0x10;
+	GPIOB->BSRR |= GPIO_BSRR_BR_14;
+	GPIOB->BSRR |= GPIO_BSRR_BR_15;
+}
+
+void ready_state()
+{
+	flags |= 0x4;
+	while(timer_ready_state <= 36000 && (flags & 0x20) == 0)
+	{
+		errors_check();
+		if((GPIOB->IDR & 0x10) == 0)
+			chanel_1_generation();
+//		if((GPIOB->IDR & 0x20) == 0)
+//			chanel_2_generation();
 		if(USART2->RDR == 0x04)
 		{
 			while ((USART2->ISR & USART_ISR_RXNE )==0);
@@ -279,6 +339,7 @@ void ready_state()
 	flags &= ~0x20;
 	flags &= ~0x40;
 	flags &= ~0x80;
+	GPIOB->BSRR |= GPIO_BSRR_BR_14;
 }
 
 void transition_to_ready()
@@ -374,96 +435,10 @@ void input_generation_parameters_state()
 	}
 }
 
-void chanel_1_generation()
-{
-	int voltage_1 = 0;
-	if(generation_parametrs[25] < generation_parametrs[1] && generation_parametrs[25] > generation_parametrs[0])
-		voltage_1 = generation_parametrs[4] + (generation_parametrs[25] - generation_parametrs[0]) * (generation_parametrs[5] - generation_parametrs[4]) / (generation_parametrs[1] - generation_parametrs[0]);
-	if(generation_parametrs[25] < generation_parametrs[2] && generation_parametrs[25] > generation_parametrs[1])
-		voltage_1 = generation_parametrs[5] + (generation_parametrs[25] - generation_parametrs[1]) * (generation_parametrs[6] - generation_parametrs[5]) / (generation_parametrs[2] - generation_parametrs[1]);
-	if(generation_parametrs[25] < generation_parametrs[3] && generation_parametrs[25] > generation_parametrs[2])
-		voltage_1 = generation_parametrs[6] + (generation_parametrs[25] - generation_parametrs[2]) * (generation_parametrs[7] - generation_parametrs[6]) / (generation_parametrs[3] - generation_parametrs[2]);
-	DAC->DHR12R1 = voltage_1;
-	GPIOB->BSRR |= GPIO_BSRR_BS_15;
-	flags |= 0x8;
-	GPIOB->BSRR |= GPIO_BSRR_BS_12;
-	while(GPIOB->BSRR &= 0x8 == 0  && USART2->RDR != 0xfa)
-	{
-		analog_emergency_situations_check();
-		if(analog_errors != 0)
-		{
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0xe6;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0x1e;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = analog_errors;
-		}
-		if(digital_errors != 0)
-		{
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0xe6;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0x2e;
-			transmit_value(&digital_errors,2);
-		}
-		for(int i = 0; i <= 100000; ++i);
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe7;
-	}
-	DAC->DHR12R1 = 0;
-	flags &= ~ 0x8;
-	GPIOB->BSRR |= GPIO_BSRR_BR_12;
-	GPIOB->BSRR |= GPIO_BSRR_BR_15;
-}
-
-void chanel_2_generation()
-{
-	int voltage_2 = 0;
-	if(generation_parametrs[26] < generation_parametrs[9] && generation_parametrs[26] > generation_parametrs[8])
-		voltage_2 = generation_parametrs[12] + (generation_parametrs[25] - generation_parametrs[8]) * (generation_parametrs[13] - generation_parametrs[12]) / (generation_parametrs[9] - generation_parametrs[8]);
-	if(generation_parametrs[26] < generation_parametrs[10] && generation_parametrs[26] > generation_parametrs[9])
-		voltage_2 = generation_parametrs[13] + (generation_parametrs[25] - generation_parametrs[9]) * (generation_parametrs[14] - generation_parametrs[13]) / (generation_parametrs[10] - generation_parametrs[9]);
-	if(generation_parametrs[26] < generation_parametrs[11] && generation_parametrs[26] > generation_parametrs[10])
-		voltage_2 = generation_parametrs[14] + (generation_parametrs[25] - generation_parametrs[10]) * (generation_parametrs[15] - generation_parametrs[14]) / (generation_parametrs[11] - generation_parametrs[10]);
-	DAC->DHR12R2 = voltage_2;
-	GPIOB->BSRR |= GPIO_BSRR_BS_15;
-	flags |= 0x10;
-	GPIOB->BSRR |= GPIO_BSRR_BS_13;
-	while(GPIOB->BSRR &= 0x10 == 0 && USART2->RDR != 0xfa)
-	{
-		analog_emergency_situations_check();
-		if(analog_errors != 0)
-		{
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0xe6;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0x1e;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = analog_errors;
-		}
-		if(digital_errors != 0)
-		{
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0xe6;
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0x2e;
-			transmit_value(&digital_errors,2);
-		}
-		for(int i = 0; i <= 100000; ++i);
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe8;
-	}
-	DAC->DHR12R2 = 0;
-	flags &= ~ 0x10;
-	GPIOB->BSRR |= GPIO_BSRR_BR_13;
-	GPIOB->BSRR |= GPIO_BSRR_BR_15;
-}
-
 void EXTI0_IRQHandler()
 {
 	for(int i = 0; i <= 1000; ++i);
-	if((flags &= 0x1) == 0)
+	if((flags & 0x1) == 0)
 		digital_errors |= 0x1;
 	EXTI->PR |= EXTI_PR_PR0;
 }
@@ -471,7 +446,7 @@ void EXTI0_IRQHandler()
 void EXTI1_IRQHandler()
 {
 	for(int i = 0; i <= 1000; ++i);
-	if((flags &= 0x2) == 0)
+	if((flags & 0x2) == 0)
 		digital_errors |= 0x2;
 	EXTI->PR |= EXTI_PR_PR1;
 }
@@ -483,27 +458,9 @@ void EXTI2_IRQHandler()
 	EXTI->PR |= EXTI_PR_PR2;
 }
 
-void EXTI4_IRQHandler()
-{
-	for(int i = 0; i <= 1000; ++i);
-	if((flags &= 0x4) == 0)
-		digital_errors |= 0x8;
-	else
-		chanel_1_generation();
-	EXTI->PR |= EXTI_PR_PR4;
-}
-
 void EXTI9_5_IRQHandler()
 {
 	for(int i = 0; i <= 1000; ++i);
-	if (EXTI->PR & (1<<5))
-	{
-		if((flags &= 0x4) == 0)
-			digital_errors |= 0x10;
-		else
-			chanel_1_generation();
-		EXTI->PR |= EXTI_PR_PR5;
-	}
 	if (EXTI->PR & (1<<8))
 	{
 		digital_errors |= 0x20;
