@@ -192,6 +192,7 @@ void errors_check()
 //		digital_errors |= 0x10;
 	if(analog_errors != 0 || digital_errors != 0)
 	{
+		__disable_irq();
 		GPIOB->BSRR |= GPIO_BSRR_BS_15;
 		GPIOB->BSRR |= GPIO_BSRR_BR_12;
 		GPIOB->BSRR |= GPIO_BSRR_BR_13;
@@ -239,6 +240,43 @@ void errors_check()
 	}
 }
 
+void set_duty_cycle(int duty_cycle)
+{
+	switch(duty_cycle)
+	{
+		case 1:
+		{
+			TIM3->CCR2 = 0;
+			TIM3->CCR3 = 0;
+			break;
+		}
+		case 2:
+		{
+			TIM3->CCR2 = 50;
+			TIM3->CCR3 = 50;
+			break;
+		}
+		case 4:
+		{
+			TIM3->CCR2 = 100;
+			TIM3->CCR3 = 100;
+			break;
+		}
+		case 8:
+		{
+			TIM3->CCR2 = 150;
+			TIM3->CCR3 = 150;
+			break;
+		}
+		case 16:
+		{
+			TIM3->CCR2 = 200;
+			TIM3->CCR3 = 200;
+			break;
+		}
+	}
+}
+
 void connection_check()
 {
 	while((USART2->ISR & USART_ISR_RXNE) == 0);
@@ -251,40 +289,55 @@ void connection_check()
 	USART2->TDR = 0xe0;
 }
 
-void getting_status_word()
-{
-	while ((USART2->ISR & USART_ISR_RXNE )==0);
-	while(USART2->RDR != 0x04);
-	while ((USART2->ISR & USART_ISR_RXNE )==0);
-	while(USART2->RDR != 0xf1);
-	for(int i = 0; i < 38; ++i)
-		read_value(&status_word[i],2);
-}
-
 void chanel_1_generation()
 {
 	int voltage_1 = 0;
-	if(generation_parametrs[25] < generation_parametrs[1] && generation_parametrs[25] > generation_parametrs[0])
-		voltage_1 = generation_parametrs[4] + (generation_parametrs[25] - generation_parametrs[0]) * (generation_parametrs[5] - generation_parametrs[4]) / (generation_parametrs[1] - generation_parametrs[0]);
-	if(generation_parametrs[25] < generation_parametrs[2] && generation_parametrs[25] > generation_parametrs[1])
-		voltage_1 = generation_parametrs[5] + (generation_parametrs[25] - generation_parametrs[1]) * (generation_parametrs[6] - generation_parametrs[5]) / (generation_parametrs[2] - generation_parametrs[1]);
-	if(generation_parametrs[25] < generation_parametrs[3] && generation_parametrs[25] > generation_parametrs[2])
-		voltage_1 = generation_parametrs[6] + (generation_parametrs[25] - generation_parametrs[2]) * (generation_parametrs[7] - generation_parametrs[6]) / (generation_parametrs[3] - generation_parametrs[2]);
+	if(generation_parametrs[5] < status_word[11] && generation_parametrs[5] > status_word[10])
+		voltage_1 = status_word[14] + (generation_parametrs[5] - status_word[10]) * (status_word[15] - status_word[14]) / (status_word[11] - status_word[10]);
+	if(generation_parametrs[5] < status_word[12] && generation_parametrs[5] > status_word[11])
+		voltage_1 = status_word[15] + (generation_parametrs[5] - status_word[11]) * (status_word[16] - status_word[15]) / (status_word[12] - status_word[11]);
+	if(generation_parametrs[5] < status_word[13] && generation_parametrs[5] > status_word[12])
+		voltage_1 = status_word[16] + (generation_parametrs[5] - status_word[12]) * (status_word[17] - status_word[16]) / (status_word[13] - status_word[12]);
+//	voltage_1 *= generation_parametrs[26]; корректировка температурой
 	DAC->DHR12R1 = voltage_1;
 	GPIOB->BSRR |= GPIO_BSRR_BS_14;
 	GPIOB->BSRR |= GPIO_BSRR_BS_15;
+	while((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0x05;
+	while((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0xE6;
 	flags |= 0x8;
 	GPIOB->BSRR |= GPIO_BSRR_BS_12;
 	while((GPIOB->IDR & 0x10) == 0)
 	{
 		errors_check();
-		for(int i = 0; i <= 100000; ++i);
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe7;
+		if(USART2->RDR == 0x04)
+		{
+			while((USART2->ISR & USART_ISR_RXNE) == 0);
+			if(USART2->RDR == 0xF0)
+			{
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0x05;
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0xE0;
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0x0C;
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0x15;
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0x00;
+			}
+			if(USART2->RDR == 0xF7)
+				digital_errors |= 0x10;
+			}
 	}
 	DAC->DHR12R1 = 0;
 	GPIOB->BSRR |= GPIO_BSRR_BR_12;
 	flags &= ~ 0x8;
+	while((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0x05;
+	while((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0xE7;
 	GPIOB->BSRR |= GPIO_BSRR_BR_14;
 	GPIOB->BSRR |= GPIO_BSRR_BR_15;
 }
@@ -292,27 +345,52 @@ void chanel_1_generation()
 void chanel_2_generation()
 {
 	int voltage_2 = 0;
-	if(generation_parametrs[26] < generation_parametrs[9] && generation_parametrs[26] > generation_parametrs[8])
-		voltage_2 = generation_parametrs[12] + (generation_parametrs[25] - generation_parametrs[8]) * (generation_parametrs[13] - generation_parametrs[12]) / (generation_parametrs[9] - generation_parametrs[8]);
-	if(generation_parametrs[26] < generation_parametrs[10] && generation_parametrs[26] > generation_parametrs[9])
-		voltage_2 = generation_parametrs[13] + (generation_parametrs[25] - generation_parametrs[9]) * (generation_parametrs[14] - generation_parametrs[13]) / (generation_parametrs[10] - generation_parametrs[9]);
-	if(generation_parametrs[26] < generation_parametrs[11] && generation_parametrs[26] > generation_parametrs[10])
-		voltage_2 = generation_parametrs[14] + (generation_parametrs[25] - generation_parametrs[10]) * (generation_parametrs[15] - generation_parametrs[14]) / (generation_parametrs[11] - generation_parametrs[10]);
+	if(generation_parametrs[6] < status_word[19] && generation_parametrs[6] > status_word[18])
+		voltage_2 = status_word[22] + (generation_parametrs[6] - status_word[18]) * (status_word[23] - status_word[22]) / (status_word[19] - status_word[18]);
+	if(generation_parametrs[6] < status_word[20] && generation_parametrs[6] > status_word[9])
+		voltage_2 = status_word[23] + (generation_parametrs[6] - status_word[19]) * (status_word[24] - status_word[23]) / (status_word[20] - status_word[19]);
+	if(generation_parametrs[6] < status_word[21] && generation_parametrs[6] > status_word[20])
+		voltage_2 = status_word[24] + (generation_parametrs[6] - status_word[20]) * (status_word[25] - status_word[24]) / (status_word[21] - status_word[20]);
+	//	voltage_2 *= generation_parametrs[27]; корректировка температурой
 	DAC->DHR12R2 = voltage_2;
 	GPIOB->BSRR |= GPIO_BSRR_BS_14;
 	GPIOB->BSRR |= GPIO_BSRR_BS_15;
 	flags |= 0x10;
+	while((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0x05;
+	while((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0xE6;
 	GPIOB->BSRR |= GPIO_BSRR_BS_13;
 	while((GPIOB->IDR & 0x20) == 0)
 	{
 		errors_check();
-		for(int i = 0; i <= 100000; ++i);
-		while ((USART2->ISR & USART_ISR_TXE)==0);
-		USART2->TDR = 0xe8;
+		if(USART2->RDR == 0x04)
+		{
+			while((USART2->ISR & USART_ISR_RXNE) == 0);
+			if(USART2->RDR == 0xF0)
+			{
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0x05;
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0xE0;
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0x0C;
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0x00;
+				while((USART2->ISR & USART_ISR_TXE) == 0);
+				USART2->TDR = 0x16;
+			}
+			if(USART2->RDR == 0xF7)
+				digital_errors |= 0x10;
+			}
 	}
 	DAC->DHR12R2 = 0;
 	GPIOB->BSRR |= GPIO_BSRR_BR_13;
 	flags &= ~ 0x10;
+	while((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0x05;
+	while((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0xE7;
 	GPIOB->BSRR |= GPIO_BSRR_BR_14;
 	GPIOB->BSRR |= GPIO_BSRR_BR_15;
 }
@@ -330,8 +408,19 @@ void ready_state()
 		if(USART2->RDR == 0x04)
 		{
 			while ((USART2->ISR & USART_ISR_RXNE )==0);
-			if(USART2->RDR == 0xf6 || USART2->RDR == 0xf8)
+			if(USART2->RDR == 0xf8)
 				flags |= 0x20;
+			if(USART2->RDR == 0xf2)
+			{
+				for(int i = 0; i < 8; ++i)
+					read_value(&generation_parametrs[i],2);
+			}
+			if(USART2->RDR == 0xf3)
+			{
+				while((USART2->ISR & USART_ISR_RXNE) == 0);
+				duty_cycle = USART2->RDR;
+				set_duty_cycle(duty_cycle);
+			}
 		}
 	}
 	timer_ready_state = 0;
@@ -398,39 +487,7 @@ void input_generation_parameters_state()
 		{
 			while((USART2->ISR & USART_ISR_RXNE) == 0);
 			duty_cycle = USART2->RDR;
-			switch(duty_cycle)
-			{
-				case 1:
-				{
-					TIM3->CCR2 = 0;
-					TIM3->CCR3 = 0;
-					break;
-				}
-				case 2:
-				{
-					TIM3->CCR2 = 50;
-					TIM3->CCR3 = 50;
-					break;
-				}
-				case 4:
-				{
-					TIM3->CCR2 = 100;
-					TIM3->CCR3 = 100;
-					break;
-				}
-				case 8:
-				{
-					TIM3->CCR2 = 150;
-					TIM3->CCR3 = 150;
-					break;
-				}
-				case 16:
-				{
-					TIM3->CCR2 = 200;
-					TIM3->CCR3 = 200;
-					break;
-				}
-			}
+			set_duty_cycle(duty_cycle);
 		}
 	}
 }
@@ -493,7 +550,21 @@ int main(void)
 	init_all();
 	ready_state();
 /* 	connection_check();
-	getting_status_word();
+ 	while((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = status_word[9];
+ 	if((flags & 0x1000) != 0)
+ 	{
+ 		while((USART2->ISR & USART_ISR_RXNE) == 0);
+ 		if(USART2->RDR == 0x04)
+ 		{
+ 			while((USART2->ISR & USART_ISR_RXNE) == 0);
+ 			if(USART2->RDR == 0xff)
+ 			{
+ 				for(int i = 0; i < 38; ++i)
+ 					read_value(&status_word[i],2);
+ 			}
+ 		}
+ 	}
 	while(1)
 	{
 		input_generation_parameters_state();
