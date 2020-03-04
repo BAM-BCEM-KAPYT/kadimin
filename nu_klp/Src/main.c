@@ -1,6 +1,5 @@
 #include"stm32f767xx.h"
 
-uint16_t buffer = 64251;
 uint8_t crc_buffer;
 uint8_t indicator_blinking = 0;
 uint8_t command_buffer[11];
@@ -488,11 +487,10 @@ void ready_state()
 	USART2->TDR = 0xf6;
 	while ((USART2->ISR & USART_ISR_TXE) == 0);
 	USART2->TDR = 0xfb;
-//	flags |= 0x4;
+	flags |= 0x4;
 	flags |= 0x40;
 	while(timer_ready_state <= 36000 && (flags & 0x20) == 0)
 	{
-
 		if((GPIOB->IDR & 0x10) == 0)
 			chanel_1_generation();
 //		if((GPIOB->IDR & 0x20) == 0)
@@ -549,8 +547,9 @@ void ready_state()
 
 void input_generation_parameters_state()
 {
-//	flags |= 0x2;
+	flags |= 0x2;
 	begin:
+	if((USART2->ISR & USART_ISR_RXNE) == 0)
 	while((USART2->ISR & USART_ISR_RXNE) == 0);
 	command_buffer[0] = USART2->RDR;
 	crc_summ +=command_buffer[0];
@@ -583,9 +582,7 @@ void input_generation_parameters_state()
 		USART2->TDR = 0xf5;
 		transmit_value(&tag_code,9);
 		for(int i = 0; i < 9; ++i)
-		{
 			crc_buffer += tag_code[i];
-		}
 		crc_buffer += 0xf6;
 		while ((USART2->ISR & USART_ISR_TXE) == 0);
 		USART2->TDR = crc_buffer;
@@ -667,18 +664,7 @@ void EXTI15_10_IRQHandler()
 int main(void)
 {
 	init_all();
-	while(1)
-	{
-		if(USART2->RDR == 0x04)
-		{
-			while((USART2->ISR & USART_ISR_RXNE) == 0);
-			if(USART2->RDR == 0xf8)
-			{
-				transmit_value(&buffer, 2);
-			}
-		}
-	}
-/* 	connection_check();
+ 	connection_check();
  	while((USART2->ISR & USART_ISR_RXNE) == 0);
  	read_command(2);
  	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf3)
@@ -696,5 +682,4 @@ int main(void)
 	{
 		input_generation_parameters_state();
 	}
-*/
 }
