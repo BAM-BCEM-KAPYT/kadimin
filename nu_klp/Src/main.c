@@ -250,7 +250,7 @@ void error_handling()
 		USART2->TDR = temperature_1;
 		while ((USART2->ISR & USART_ISR_TXE) == 0);
 		USART2->TDR = temperature_2;
-		crc_buffer = 0xf6 + temperature_1 + temperature_2 + (analog_errors & 0x00ff) + (analog_errors & 0xff00) + (digital_errors & 0x00ff) + (digital_errors & 0xff00);
+		crc_buffer = 0xf6 + temperature_1 + temperature_2 + *((char*)&analog_errors + 0) + *((char*)&analog_errors + 1) + *((char*)&digital_errors + 0) + *((char*)&digital_errors + 1);
 		while ((USART2->ISR & USART_ISR_TXE) == 0);
 		USART2->TDR = crc_buffer;
 		crc_buffer = 0;
@@ -324,33 +324,29 @@ void set_duty_cycle(int duty_cycle)
 
 void connection_check()
 {
-	read_command(2);
-	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf0)
+	while ((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0x05;
+	while ((USART2->ISR & USART_ISR_TXE) == 0);
+	USART2->TDR = 0xf0;
+	errors_check();
+	if(analog_errors != 0 || digital_errors != 0)
+	{
+		error_handling();
+	}
+	if((flags & 0x1) == 0 && analog_errors == 0 && digital_errors == 0)
+	{
+		while ((USART2->ISR & USART_ISR_TXE)==0);
+		USART2->TDR = 0x0A;
+		while ((USART2->ISR & USART_ISR_TXE) == 0);
+		USART2->TDR = 0xFF;
+	}
+	if((flags & 0x1) != 0)
 	{
 		while ((USART2->ISR & USART_ISR_TXE) == 0);
-		USART2->TDR = 0x05;
+		USART2->TDR = 0x0B;
 		while ((USART2->ISR & USART_ISR_TXE) == 0);
-		USART2->TDR = 0xf0;
-		errors_check();
-		if(analog_errors != 0 || digital_errors != 0)
-		{
-			error_handling();
-		}
-		if((flags & 0x1) == 0 && analog_errors == 0 && digital_errors == 0)
-		{
-			while ((USART2->ISR & USART_ISR_TXE)==0);
-			USART2->TDR = 0x0A;
-			while ((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0xFF;
-		}
-		if((flags & 0x1) != 0)
-		{
-			while ((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0x0B;
-			while ((USART2->ISR & USART_ISR_TXE) == 0);
-			USART2->TDR = 0x00;
-			flags &= ~0x1;
-		}
+		USART2->TDR = 0x00;
+		flags &= ~0x1;
 	}
 	clear_command_buffer();
 }
@@ -446,8 +442,6 @@ void connection_check_in_ready()
 
 void TIM4_IRQHandler(void)
 {
-	if((flags & 0x2) != 0)
-		connection_check();
 	if((flags & 0x100) != 0)
 		connection_check_in_ready();
 	TIM4->SR &= ~TIM_SR_UIF;
@@ -581,15 +575,22 @@ void ready_state()
 
 void input_generation_parameters_state()
 {
-//	flags |= 0x2;
 	begin:
-	if((USART2->ISR & USART_ISR_RXNE) == 0)
 	while((USART2->ISR & USART_ISR_RXNE) == 0);
 	command_buffer[0] = USART2->RDR;
 	crc_summ +=command_buffer[0];
 	while((USART2->ISR & USART_ISR_RXNE) == 0);
 	command_buffer[1] = USART2->RDR;
 	crc_summ += command_buffer[1];
+	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf0)
+	{
+		while((USART2->ISR & USART_ISR_RXNE) == 0);
+		crc = USART2->RDR;
+		if(crc_summ != crc)
+			flags |= 0x1;
+		crc_summ = 0;
+		connection_check();
+	}
 	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf4)
 	{
 		while((USART2->ISR & USART_ISR_RXNE) == 0);
@@ -601,6 +602,7 @@ void input_generation_parameters_state()
 			flags |= 0x1;
 		crc_summ = 0;
 		set_duty_cycle(command_buffer[2]);
+		clear_command_buffer();
 		goto begin;
 	}
 	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf5)
@@ -617,10 +619,11 @@ void input_generation_parameters_state()
 		transmit_value(&tag_code,9);
 		for(int i = 0; i < 9; ++i)
 			crc_buffer += tag_code[i];
-		crc_buffer += 0xf6;
+		crc_buffer += 0xfa;
 		while ((USART2->ISR & USART_ISR_TXE) == 0);
 		USART2->TDR = crc_buffer;
 		crc_buffer = 0;
+		clear_command_buffer();
 		goto begin;
 	}
 	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf6)
@@ -635,6 +638,7 @@ void input_generation_parameters_state()
 			flags |= 0x1;
 		crc_summ = 0;
 		flags &= ~0x2;
+		clear_command_buffer();
 		ready_state();
 	}
 	clear_command_buffer();
@@ -695,7 +699,12 @@ void EXTI15_10_IRQHandler()
 int main(void)
 {
 	init_all();
- 	connection_check();
+/*	read_command(2);
+	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf0)
+	{
+		connection_check();
+	}
+	clear_command_buffer();
  	while((USART2->ISR & USART_ISR_RXNE) == 0);
  	read_command(2);
  	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf3)
@@ -710,6 +719,6 @@ int main(void)
 		USART2->TDR = 0xfa;
 	}
 	clear_command_buffer();
-	while(1)
+*/	while(1)
 		input_generation_parameters_state();
 }
