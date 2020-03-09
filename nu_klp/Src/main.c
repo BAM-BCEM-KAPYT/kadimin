@@ -54,12 +54,6 @@ void init_all()
 	TIM3->CCER |= TIM_CCER_CC2E | TIM_CCER_CC3E;
 	TIM3->CR1 |= TIM_CR1_CEN;
 
-	TIM4->PSC = 16000;
-	TIM4->ARR = 1000;
-	TIM4->CR1 |= TIM_CR1_CEN;
-	TIM4->DIER |= TIM_DIER_UIE;
-	NVIC_EnableIRQ(TIM4_IRQn);
-
 	GPIOA->MODER |= GPIO_MODER_MODER0 | GPIO_MODER_MODER1 | GPIO_MODER_MODER6 | GPIO_MODER_MODER7;
 	GPIOC->MODER |= GPIO_MODER_MODER1 | GPIO_MODER_MODER2;
 	ADC1->SQR1 |= ADC_SQR1_L_1 | ADC_SQR1_L_2;
@@ -122,6 +116,7 @@ void transmit_value(void *ad, int length)
 	{
 		while((USART2->ISR & USART_ISR_TXE) == 0);
 		USART2->TDR = *((char*)ad + i);
+		crc_buffer += *((char*)ad + i);
 	}
 }
 
@@ -244,16 +239,16 @@ void error_handling()
 		USART2->TDR = 0xf1;
 		transmit_value(&analog_errors,2);
 		transmit_value(&digital_errors,2);
-		analog_errors = 0;
-		digital_errors = 0;
 		while ((USART2->ISR & USART_ISR_TXE) == 0);
 		USART2->TDR = temperature_1;
 		while ((USART2->ISR & USART_ISR_TXE) == 0);
 		USART2->TDR = temperature_2;
-		crc_buffer = 0xf6 + temperature_1 + temperature_2 + *((char*)&analog_errors + 0) + *((char*)&analog_errors + 1) + *((char*)&digital_errors + 0) + *((char*)&digital_errors + 1);
+		crc_buffer = 0xf6 + temperature_1 + temperature_2;
 		while ((USART2->ISR & USART_ISR_TXE) == 0);
 		USART2->TDR = crc_buffer;
 		crc_buffer = 0;
+		analog_errors = 0;
+		digital_errors = 0;
 		begin:
 		read_command(3);
 		while(1)
@@ -353,7 +348,14 @@ void connection_check()
 
 void connection_check_in_ready()
 {
-	read_command(3);
+	while((USART2->ISR & USART_ISR_RXNE) == 0);
+	command_buffer[2] = USART2->RDR;
+	crc_summ += command_buffer[2];
+	while((USART2->ISR & USART_ISR_RXNE) == 0);
+	crc = USART2->RDR;
+	if(crc_summ != crc)
+		flags |= 0x1;
+	crc_summ = 0;
 	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf8 && command_buffer[2] == 0x0A)
 	{
 
@@ -440,13 +442,6 @@ void connection_check_in_ready()
 	crc_buffer = 0;
 }
 
-void TIM4_IRQHandler(void)
-{
-	if((flags & 0x100) != 0)
-		connection_check_in_ready();
-	TIM4->SR &= ~TIM_SR_UIF;
-}
-
 void chanel_1_generation()
 {
 	flags &= ~0x40;
@@ -466,6 +461,21 @@ void chanel_1_generation()
 	while((GPIOB->IDR & 0x10) == 0)
 	{
 		errors_check();
+		if((USART2->ISR & USART_ISR_RXNE) != 0)
+		{
+			crc_summ = 0;
+			while((USART2->ISR & USART_ISR_RXNE) == 0);
+			command_buffer[0] = USART2->RDR;
+			crc_summ += command_buffer[0];
+			while((USART2->ISR & USART_ISR_RXNE) == 0);
+			command_buffer[1] = USART2->RDR;
+			crc_summ += command_buffer[1];
+			if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf8)
+			{
+				connection_check_in_ready();
+			}
+			clear_command_buffer();
+		}
 	}
 	DAC->DHR12R1 = 0;
 	GPIOB->BSRR |= GPIO_BSRR_BR_12;
@@ -495,6 +505,21 @@ void chanel_2_generation()
 	while((GPIOB->IDR & 0x20) == 0)
 	{
 		errors_check();
+		if((USART2->ISR & USART_ISR_RXNE) != 0)
+		{
+			crc_summ = 0;
+			while((USART2->ISR & USART_ISR_RXNE) == 0);
+			command_buffer[0] = USART2->RDR;
+			crc_summ += command_buffer[0];
+			while((USART2->ISR & USART_ISR_RXNE) == 0);
+			command_buffer[1] = USART2->RDR;
+			crc_summ += command_buffer[1];
+			if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf8)
+			{
+				connection_check_in_ready();
+			}
+			clear_command_buffer();
+		}
 	}
 	DAC->DHR12R2 = 0;
 	GPIOB->BSRR |= GPIO_BSRR_BR_13;
@@ -515,7 +540,6 @@ void ready_state()
 	USART2->TDR = 0xfb;
 	flags |= 0x4;
 	flags |= 0x40;
-	flags |= 0x100;
 	while(timer_ready_state <= 36000 && (flags & 0x20) == 0)
 	{
 		if((GPIOB->IDR & 0x10) == 0)
@@ -524,6 +548,7 @@ void ready_state()
 //			chanel_2_generation();
 		if((USART2->ISR & USART_ISR_RXNE) != 0)
 		{
+			crc_summ = 0;
 			while((USART2->ISR & USART_ISR_RXNE) == 0);
 			command_buffer[0] = USART2->RDR;
 			crc_summ += command_buffer[0];
@@ -532,10 +557,16 @@ void ready_state()
 			crc_summ += command_buffer[1];
 			if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf7)
 			{
-				flags |= 0x20;
+				while((USART2->ISR & USART_ISR_RXNE) == 0);
+				crc = USART2->RDR;
 				if(crc_summ != crc)
 					flags |= 0x1;
 				crc_summ = 0;
+				flags |= 0x20;
+			}
+			if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf8)
+			{
+				connection_check_in_ready();
 			}
 			if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf9)
 			{
@@ -543,9 +574,15 @@ void ready_state()
 				command_buffer[2] = USART2->RDR;
 				crc_summ += command_buffer[2];
 				if(command_buffer[2] == 0x0A)
+				{
 					read_value(&generation_parametrs[4], 2);
+				}
 				if(command_buffer[2] == 0x0B)
+				{
 					read_value(&generation_parametrs[5], 2);
+				}
+				while((USART2->ISR & USART_ISR_RXNE) == 0);
+				crc = USART2->RDR;
 				if(crc_summ != crc)
 					flags |= 0x1;
 				crc_summ = 0;
@@ -699,7 +736,7 @@ void EXTI15_10_IRQHandler()
 int main(void)
 {
 	init_all();
-/*	read_command(2);
+	read_command(2);
 	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf0)
 	{
 		connection_check();
@@ -719,6 +756,6 @@ int main(void)
 		USART2->TDR = 0xfa;
 	}
 	clear_command_buffer();
-*/	while(1)
+	while(1)
 		input_generation_parameters_state();
 }
