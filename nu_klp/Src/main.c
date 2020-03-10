@@ -59,7 +59,7 @@ void init_all()
 	ADC1->SQR1 |= ADC_SQR1_L_1 | ADC_SQR1_L_2;
 	ADC1->SQR3 |= ADC_SQR3_SQ2_0 | ADC_SQR3_SQ3_2 | ADC_SQR3_SQ3_1 | ADC_SQR3_SQ4_2 | ADC_SQR3_SQ4_1 | ADC_SQR3_SQ4_0 | ADC_SQR3_SQ5_3 | ADC_SQR3_SQ5_1 | ADC_SQR3_SQ5_0 | ADC_SQR3_SQ6_3 | ADC_SQR3_SQ6_2;
 	ADC1->CR1 |= ADC_CR1_SCAN;
-	ADC1->CR2 |= ADC_CR2_DMA | ADC_CR2_DDS | ADC_CR2_CONT | ADC_CR2_ADON;
+	ADC1->CR2 |= ADC_CR2_DMA | ADC_CR2_DDS | ADC_CR2_ADON;
 
 	DMA2_Stream0->CR &= ~DMA_SxCR_EN;
 	DMA2_Stream0->CR  |= DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 | DMA_SxCR_MINC | DMA_SxCR_CIRC;
@@ -736,7 +736,8 @@ void EXTI15_10_IRQHandler()
 int main(void)
 {
 	init_all();
-	read_command(2);
+	while(1);
+/*	read_command(2);
 	if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf0)
 	{
 		connection_check();
@@ -758,4 +759,5 @@ int main(void)
 	clear_command_buffer();
 	while(1)
 		input_generation_parameters_state();
+*/
 }
