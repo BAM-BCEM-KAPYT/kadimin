@@ -620,7 +620,7 @@ void analog_emergency_situations_check()
 	if(adc_value[5] >= 10)
 		analog_errors &= ~0x800;
 
-	if(adc_value[4] >= status_word[4])
+	if(adc_value[4] >= status_word[4 || adc_value[4] >= status_word[6]] || adc_value[4] >= status_word[5])
 	{
 		GPIOD->BSRR |= GPIO_BSRR_BS_13;
 		control_flags |= 0x8;
@@ -643,10 +643,10 @@ void analog_emergency_situations_check()
 	}
 	if(adc_value[4] <= status_word[7])
 	{
-		analog_errors &= ~0x100;
+		analog_errors &= ~0x140;
 		flags &= ~0x10000;
 	}
-	if(adc_value[5] >= status_word[4])
+	if(adc_value[5] >= status_word[4] || adc_value[5] >= status_word[6] || adc_value[5] >= status_word[5])
 	{
 		GPIOD->BSRR |= GPIO_BSRR_BS_13;
 		control_flags |= 0x8;
@@ -669,7 +669,7 @@ void analog_emergency_situations_check()
 	}
 	if(adc_value[5] <= status_word[7])
 	{
-		analog_errors &= ~0x200;
+		analog_errors &= ~0x280;
 		flags &= ~0x20000;
 	}
 	if(adc_value[4] <= (status_word[4] - 2) && adc_value[5] <= status_word[4] - 2)
@@ -687,10 +687,13 @@ void errors_check()
 		analog_errors |= 0x10;
 	if((status_word[10] & 0x8) != 0)
 		analog_errors |= 0x20;
-	if((flags & 0x20000) != 0)
-		analog_errors |= 0x80;
-	if((flags & 0x10000) != 0)
-		analog_errors |= 0x40;	
+	if((flags & 0x8) == 0 && (flags & 0x10) == 0)
+	{
+		if((flags & 0x20000) != 0)
+			analog_errors |= 0x80;
+		if((flags & 0x10000) != 0)
+			analog_errors |= 0x40;
+	}
 	
 	if((flags & 0x1) != 0)
 	{
@@ -808,44 +811,10 @@ void connection_check()
 		USART3->DR = 0x0C;
 		while ((USART3->SR & USART_SR_TXE) == 0);
 		USART3->DR = 0x01;
+		analog_errors = 0;
+		digital_errors = 0;
 	}
 	clear_command_buffer();
-	for(int i = 0; i < 10; ++i)
-	{
-		DMA2_Stream0->CR &= ~DMA_SxCR_EN;
-		DMA2_Stream0->M0AR = (uint32_t)&adc_buffer[i * 6];
-		DMA2_Stream0->CR |= DMA_SxCR_EN;
-		ADC1->CR2 |= ADC_CR2_SWSTART;
-		for(int j = 0; j < 1000; ++j);
-	}
-	for(int i = 0; i < 6; ++i)
-		adc_value[i] = 0;
-	for(int i = 0; i < 6; ++i)
-		for(int j = 0; j < 10; ++j)
-			adc_value[i] += adc_buffer[i + j * 6];
-	for(int i = 0; i < 6; ++i)
-		adc_value[i] = (int)(adc_value[i] / 10);
-		
-	adc_value[4] = (int)(adc_value[4] * 0.825);
-	resistance = 10000 * adc_value[4] / (4096 - adc_value[4]);
-	temperature = (int)((298.15 * betta) / (betta * 1.0 + 298.15 * log(resistance / 10000.0)) - 273.15);
-	if(temperature < 0)
-		temperature = 0;
-	adc_value[4] = (int)(temperature);
-	
-	adc_value[5] = (int)(adc_value[5] * 0.825);
-	resistance = 10000 * adc_value[5] / (4096 - adc_value[5]);
-	temperature = (int)((298.15 * betta) / (betta * 1.0 + 298.15 * log(resistance / 10000.0)) - 273.15);
-	if(temperature < 0)
-		temperature = 0;
-	adc_value[5] = (int)(temperature);
-	
-	if(adc_value[4] >= status_word[4])
-		GPIOD->BSRR |= GPIO_BSRR_BS_13;
-	if(adc_value[5] >= status_word[4])
-		GPIOD->BSRR |= GPIO_BSRR_BS_13;
-	if(adc_value[4] <= (status_word[4] - 2) && adc_value[5] <= status_word[4] - 2)
-		GPIOD->BSRR |= GPIO_BSRR_BR_13;
 }
 
 void connection_check_in_ready()
@@ -866,6 +835,8 @@ void connection_check_in_ready()
 						analog_errors |= 0x20;
 						status_word[10] |= 0x8;
 						set_flag(4, 1);
+						status_word[10] |= 0x2;
+						set_flag(2, 1);
 					}		
 					if((adc_value[3] * 100) / generation_parametrs[4] >= 115 || (adc_value[3] * 100) / generation_parametrs[4] <= 85)
 					{
@@ -880,6 +851,8 @@ void connection_check_in_ready()
 						analog_errors |= 0x20;
 						status_word[10] |= 0x8;
 						set_flag(4, 1);
+						status_word[10] |= 0x2;
+						set_flag(2, 1);
 					}		
 					if((adc_value[1] * 100) / generation_parametrs[4] >= 115 || (adc_value[1] * 100) / generation_parametrs[4] <= 85)
 					{
@@ -897,6 +870,8 @@ void connection_check_in_ready()
 						analog_errors |= 0x10;
 						status_word[10] |= 0x4;
 						set_flag(3, 1);
+						status_word[10] |= 0x1;
+						set_flag(1, 1);
 					}
 					if((adc_value[2] * 100) / generation_parametrs[5] >= 115 || (adc_value[2] * 100) / generation_parametrs[5] <= 85)
 					{
@@ -911,6 +886,8 @@ void connection_check_in_ready()
 						analog_errors |= 0x10;
 						status_word[10] |= 0x4;
 						set_flag(3, 1);
+						status_word[10] |= 0x1;
+						set_flag(1, 1);
 					}
 					if((adc_value[0] * 100) / generation_parametrs[5] >= 115 || (adc_value[0] * 100) / generation_parametrs[5] <= 85)
 					{
@@ -1062,8 +1039,6 @@ void chanel_1_generation()
 	flags &= ~0x40;
 	TIM2->CCR1 = duty_cycle_set_1;
 	TIM4->CCR1 = duty_cycle_set_2;	
-	GPIOB->BSRR |= GPIO_BSRR_BS_13;
-	GPIOB->BSRR |= GPIO_BSRR_BS_14;
 	if((flags & 0x8000) != 0)
 	{
 		power_1 = (int)(generation_parametrs[5] * 124.1);
@@ -1118,10 +1093,20 @@ void chanel_1_generation()
 				if(command_buffer[2] == 1)
 				{
 					GPIOB->BSRR |= GPIO_BSRR_BS_14 | GPIO_BSRR_BR_13;
+					DAC->DHR12R1 = 0;
+					DAC->DHR12R2 = 0;
+					GPIOB->BSRR |= GPIO_BSRR_BR_15;
+					GPIOD->BSRR |= GPIO_BSRR_BR_10;
+					flags |= 0x800;
 				}
 				if(command_buffer[2] == 2)
 				{
 					flags |= 0x2000;
+					DAC->DHR12R1 = 0;
+					DAC->DHR12R2 = 0;
+					GPIOB->BSRR |= GPIO_BSRR_BR_15;
+					GPIOD->BSRR |= GPIO_BSRR_BR_10;
+					flags |= 0x800;
 				}
 				while ((USART3->SR & USART_SR_TXE) == 0);
 				USART3->DR = 0x05;
@@ -1139,11 +1124,8 @@ void chanel_1_generation()
 	flags &= ~ 0x8;
 	flags &= ~ 0x80;
 	GPIOB->BSRR |= GPIO_BSRR_BR_14;
-	if((status_word[10] & 0x1) != 0 && (flags & 0x4) == 0)
-	{
+	if((status_word[10] & 0x1) != 0)
 		analog_errors |= 0x4;
-		flags |= 0x4;
-	}
 	if((flags & 0x10000) != 0)
 		analog_errors |= 0x40;
 
@@ -1168,8 +1150,6 @@ void chanel_2_generation()
 	flags &= ~0x40;
 	TIM2->CCR1 = duty_cycle_set_1;
 	TIM4->CCR1 = duty_cycle_set_2;
-	GPIOB->BSRR |= GPIO_BSRR_BS_13;
-	GPIOB->BSRR |= GPIO_BSRR_BS_14;
 	if((flags & 0x8000) != 0)
 	{
 		power_2 = (int)(generation_parametrs[4] * 124.1);
@@ -1224,10 +1204,20 @@ void chanel_2_generation()
 				if(command_buffer[2] == 1)
 				{
 					GPIOB->BSRR |= GPIO_BSRR_BS_14 | GPIO_BSRR_BR_13;
+					DAC->DHR12R1 = 0;
+					DAC->DHR12R2 = 0;
+					GPIOB->BSRR |= GPIO_BSRR_BR_15;
+					GPIOD->BSRR |= GPIO_BSRR_BR_10;
+					flags |= 0x800;
 				}
 				if(command_buffer[2] == 2)
 				{
 					flags |= 0x2000;
+					DAC->DHR12R1 = 0;
+					DAC->DHR12R2 = 0;
+					GPIOB->BSRR |= GPIO_BSRR_BR_15;
+					GPIOD->BSRR |= GPIO_BSRR_BR_10;
+					flags |= 0x800;
 				}
 				while ((USART3->SR & USART_SR_TXE) == 0);
 				USART3->DR = 0x05;
@@ -1246,11 +1236,8 @@ void chanel_2_generation()
 	flags &= ~ 0x10;
 	flags &= ~ 0x80;
 	GPIOB->BSRR |= GPIO_BSRR_BR_14;
-	if((status_word[10] & 0x2) != 0 && (flags & 0x40000) == 0)
-	{
+	if((status_word[10] & 0x2) != 0)
 		analog_errors |= 0x8;
-		flags |= 0x40000;
-	}
 	if((flags & 0x20000) != 0)
 		analog_errors |= 0x80;
 
@@ -1290,6 +1277,7 @@ void ready_state()
 	flags &= ~0x800;
 	flags &= ~0x20;
 	flags &= ~0x2000;
+	flags &= ~0x40000;
 	GPIOB->BSRR |= GPIO_BSRR_BR_14;
 	analog_errors = 0;
 	digital_errors = 0;
@@ -2652,6 +2640,18 @@ int main(void)
 				while ((USART3->SR & USART_SR_TXE) == 0);
 				USART3->DR = 0xec;
 			}
+			if(command_buffer[0] == 0x04 && command_buffer[1] == 0xe4)
+			{
+				while((USART3->SR & USART_SR_RXNE) == 0);
+				command_buffer[2] = USART3->DR;
+				crc_summ += command_buffer[2];
+				while((USART3->SR & USART_SR_RXNE) == 0);
+				crc = USART3->DR;
+				if(crc_summ != crc)
+					flags |= 0x1;
+				crc_summ = 0;
+				goto begin_bt_2;
+			}
 		}
 		clear_command_buffer();
 	}
@@ -2691,7 +2691,7 @@ int main(void)
 				if(crc_summ != crc)
 					flags |= 0x1;
 				crc_summ = 0;
-				
+				begin_bt_2:
 				if(command_buffer[0] == 0x04 && command_buffer[1] == 0xe4)
 				{
 					if(command_buffer[2] != 0x1)
