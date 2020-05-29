@@ -759,8 +759,6 @@ void errors_check()
 
 void error_send()
 {
-	digital_errors = 0;
-	analog_errors = 0;
 	errors_check();
 	if(analog_errors == 0 && digital_errors == 0)
 	{
@@ -785,10 +783,11 @@ void error_send()
 	crc_buffer = 0;
 	digital_errors = 0;
 	analog_errors = 0;
-	status_word[10] &= ~0x1;
-	status_word[10] &= ~0x2;
-	set_flag(1, 0);
-	set_flag(2, 0);
+	if((status_word[10] & 0x1) != 0)
+		analog_errors |= 0x4;
+	if((status_word[10] & 0x2) != 0)
+		analog_errors |= 0x8;
+	flags &= ~0x200000;
 }
 
 void connection_check()
@@ -819,6 +818,15 @@ void connection_check()
 
 void connection_check_in_ready()
 {
+	if((flags & 0x200000) == 0 && analog_errors != 0)
+	{
+		status_word[10] &= ~0x1;
+		status_word[10] &= ~0x2;
+		set_flag(1, 0);
+		set_flag(2, 0);
+		analog_errors &= ~0x4;
+		analog_errors &= ~0x8;
+	}
 	if((flags & 0x8000) == 0)
 	{
 		errors_check();		
@@ -842,6 +850,7 @@ void connection_check_in_ready()
 					{
 						status_word[10] |= 0x2;
 						set_flag(2, 1);
+						flags |= 0x200000;
 					}
 				}
 				else
@@ -858,6 +867,7 @@ void connection_check_in_ready()
 					{
 						status_word[10] |= 0x2;
 						set_flag(2, 1);
+						flags |= 0x200000;
 					}
 				}
 			}
@@ -877,6 +887,7 @@ void connection_check_in_ready()
 					{
 						status_word[10] |= 0x1;
 						set_flag(1, 1);
+						flags |= 0x200000;
 					}
 				}
 				else
@@ -893,6 +904,7 @@ void connection_check_in_ready()
 					{
 						status_word[10] |= 0x1;
 						set_flag(1, 1);
+						flags |= 0x200000;
 					}
 				}
 			}
@@ -1269,10 +1281,6 @@ void ready_state()
 		USART3->DR = 0xfb;
 	}
 	GPIOB->BSRR |= GPIO_BSRR_BS_13;
-	if((status_word[10] & 0x1) != 0)
-		status_word[10] &= ~0x1;
-	if((status_word[10] & 0x2) != 0)
-		status_word[10] &= ~0x2;
 	flags |= 0x40;
 	flags &= ~0x800;
 	flags &= ~0x20;
@@ -1283,6 +1291,16 @@ void ready_state()
 	digital_errors = 0;
 	while((flags & 0x20) == 0 && (flags & 0x100) == 0)
 	{
+		if(((GPIOD->IDR & 0x4000) == 0 || (GPIOD->IDR & 0x8000) == 0) && (flags & 0x200000) == 0 && analog_errors != 0)
+		{
+			status_word[10] &= ~0x1;
+			status_word[10] &= ~0x2;
+			set_flag(1, 0);
+			set_flag(2, 0);
+			analog_errors &= ~0x4;
+			analog_errors &= ~0x8;
+			flags |= 0x200000;
+		}
 		if((GPIOD->IDR & 0x8000) != 0 && (GPIOD->IDR & 0x4000) != 0)
 			flags &= ~0x800;
 		if((USART3->SR & USART_SR_RXNE) != 0)
@@ -1644,9 +1662,6 @@ void service_menu()
 				if(crc_summ != crc)
 					flags |= 0x1;
 				crc_summ = 0;
-				
-				for(int i = 0; i < 33; ++i)
-					rfid_buffer[i] = 0;
 				send_start_rfid_message();
 				while((USART1->SR & USART_SR_TXE) == 0);
 				USART1->DR = 0x41;
@@ -1666,25 +1681,23 @@ void service_menu()
 					while((USART1->SR & USART_SR_RXNE) == 0);
 					rfid_buffer[i] = USART1->DR;
 				}
-				if(rfid_buffer[15] == 0x0d)
+				if(rfid_buffer[14] == 0x0d && rfid_buffer[15] == 0x0a)
 					goto end_rfid;
-
+				
 				for(int i = 16; i < 33; ++i)
 				{
 					while((USART1->SR & USART_SR_RXNE) == 0);
 					rfid_buffer[i] = USART1->DR;
 				}
 				clear_command_buffer();
-				crc_summ = 0;
 				read_command(2);
 				if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf5)
 				{
-
 					while ((USART3->SR & USART_SR_TXE) == 0);
 					USART3->DR = 0x05;
 					while ((USART3->SR & USART_SR_TXE) == 0);
 					USART3->DR = 0xf5;
-					for(int i = 16; i < 26; ++i)
+					for(int i = 15; i < 25; ++i)
 					{
 						while((USART3->SR & USART_SR_TXE) == 0);
 						USART3->DR = rfid_buffer[i];
@@ -1697,6 +1710,7 @@ void service_menu()
 				}
 				for(int i = 0; i < 33; ++i)
 					rfid_buffer[i] = 0;
+				
 				end_rfid:
 				clear_command_buffer();
 			}
