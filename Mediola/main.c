@@ -1708,6 +1708,8 @@ void service_menu()
 					USART3->DR = crc_buffer;
 					crc_buffer = 0;
 				}
+				else if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf0)
+					connection_check();
 				for(int i = 0; i < 33; ++i)
 					rfid_buffer[i] = 0;
 				
@@ -2318,6 +2320,8 @@ void input_generation_parameters_state()
 					USART3->DR = crc_buffer;
 					crc_buffer = 0;
 				}
+				else if(command_buffer[0] == 0x04 && command_buffer[1] == 0xf0)
+					connection_check();
 				for(int i = 0; i < 33; ++i)
 					rfid_buffer[i] = 0;
 				
