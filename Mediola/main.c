@@ -620,7 +620,7 @@ void analog_emergency_situations_check()
 	if(adc_value[5] >= 10)
 		analog_errors &= ~0x800;
 
-	if(adc_value[4] >= status_word[4 || adc_value[4] >= status_word[6]] || adc_value[4] >= status_word[5])
+	if((adc_value[4] >= status_word[4 || adc_value[4] >= status_word[6]] || adc_value[4] >= status_word[5]) && (flags & 0x2) == 0)
 	{
 		GPIOD->BSRR |= GPIO_BSRR_BS_13;
 		control_flags |= 0x8;
@@ -646,7 +646,7 @@ void analog_emergency_situations_check()
 		analog_errors &= ~0x140;
 		flags &= ~0x10000;
 	}
-	if(adc_value[5] >= status_word[4] || adc_value[5] >= status_word[6] || adc_value[5] >= status_word[5])
+	if((adc_value[5] >= status_word[4] || adc_value[5] >= status_word[6] || adc_value[5] >= status_word[5]) && (flags & 0x2) == 0)
 	{
 		GPIOD->BSRR |= GPIO_BSRR_BS_13;
 		control_flags |= 0x8;
