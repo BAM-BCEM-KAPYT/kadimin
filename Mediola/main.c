@@ -947,9 +947,7 @@ void connection_check_in_ready()
 	{
 		if((flags & 0x8) != 0 && analog_errors == 0 && digital_errors == 0)
 		{
-			while ((USART3->SR & USART_SR_TXE) == 0);
-			USART3->DR = 0;
-			transmit_value(&emitter_1_timer, 1, 3);
+			transmit_value(&emitter_1_timer, 2, 3);
 			if((generation_parametrs[6] & 0x1) == 0)
 			{
 				if((status_word[10] & 0x80) == 0)
@@ -967,9 +965,7 @@ void connection_check_in_ready()
 		}
 		if((flags & 0x10) != 0 && analog_errors == 0 && digital_errors == 0)
 		{
-			while ((USART3->SR & USART_SR_TXE) == 0);
-			USART3->DR = 0;
-			transmit_value(&emitter_2_timer, 1, 3);
+			transmit_value(&emitter_2_timer, 2, 3);
 			if((generation_parametrs[6] & 0x100) == 0)
 			{
 				if((status_word[10] & 0x80) == 0)
